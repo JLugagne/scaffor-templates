@@ -1,0 +1,42 @@
+name: git-init-go
+description: |
+  Sets up Git hooks for a Go project.
+  Copies .githooks/ into the repo and configures Git to use them via core.hooksPath.
+
+commands:
+  - command: install
+    description: Copy hooks and configure git to use them
+    variables: []
+    files:
+      - source: .githooks/pre-push
+        destination: .githooks/pre-push
+        on_conflict: force
+      - source: .github/workflows/release.yml
+        destination: .github/workflows/release.yml
+        on_conflict: force
+      - source: .github/workflows/test.yml
+        destination: .github/workflows/test.yml
+        on_conflict: force
+    shell_commands:
+      - command: "chmod +x .githooks/pre-push"
+      - command: "git config core.hooksPath .githooks"
+    hint: |
+      Git hooks installed.
+
+      Created:
+        .githooks/pre-push               — runs go test ./... and golangci-lint before every push
+        .github/workflows/release.yml   — GitHub Actions release workflow
+        .github/workflows/test.yml      — GitHub Actions test workflow
+
+      Git is now configured to use .githooks/ as the hooks directory.
+      Commit .githooks/ and .github/ to share them with your team.
+
+test:
+  - command: install
+    params: {}
+
+validate:
+  - "test -f .githooks/pre-push"
+  - "test -x .githooks/pre-push"
+  - "test -f .github/workflows/release.yml"
+  - "test -f .github/workflows/test.yml"
