@@ -1,0 +1,13 @@
+package {{ .Package | lower }}
+
+import "errors"
+
+// Sentinel errors exported by this package. Add or rename as the package
+// grows; keep the set small and part of the documented contract.
+var (
+	// ErrInvalid is returned when a caller passes an argument that fails
+	// this package's validation rules. Delete, rename, or replace as
+	// needed — this is a starter so the package has a testable surface
+	// from day one.
+	ErrInvalid = errors.New("{{ .Package | lower }}: invalid argument")
+)

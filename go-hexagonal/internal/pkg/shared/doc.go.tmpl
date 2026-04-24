@@ -1,0 +1,15 @@
+// Package {{ .Package | lower }} is a shared utility package.
+//
+// This package lives outside the bounded-context layering (no domain / app /
+// inbound / outbound split). It is a library of pure functions, types, and
+// thin wrappers that any bounded context may import from
+// {{ .ModulePath }}/internal/pkg/{{ .Package | lower }}.
+//
+// Conventions for shared packages:
+//   - Keep the API surface small and stable; exported symbols are contracts.
+//   - No cross-import of internal bounded contexts (./internal/<context>/…).
+//     Shared packages are leaves in the import graph.
+//   - No silent I/O in init(); callers construct what they need explicitly.
+//   - Errors are sentinel values defined in errors.go when they are part of
+//     the package contract; otherwise wrap errors from upstream callers.
+package {{ .Package | lower }}

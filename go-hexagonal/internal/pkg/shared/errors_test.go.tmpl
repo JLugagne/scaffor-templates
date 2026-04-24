@@ -1,0 +1,24 @@
+package {{ .Package | lower }}_test
+
+import (
+	"errors"
+	"testing"
+
+	"{{ .ModulePath }}/internal/pkg/{{ .Package | lower }}"
+)
+
+// TestErrInvalidIsSentinel is a smoke test proving the package compiles,
+// is importable via its module path, and exposes ErrInvalid as a sentinel.
+// Delete or replace when the package grows real tests.
+func TestErrInvalidIsSentinel(t *testing.T) {
+	t.Parallel()
+
+	if {{ .Package | lower }}.ErrInvalid == nil {
+		t.Fatal("ErrInvalid must be a non-nil sentinel error")
+	}
+
+	wrapped := errors.New("wrapping: " + {{ .Package | lower }}.ErrInvalid.Error())
+	if errors.Is(wrapped, {{ .Package | lower }}.ErrInvalid) {
+		t.Fatal("bare string wrapping should NOT satisfy errors.Is; use fmt.Errorf(%%w) in real callers")
+	}
+}

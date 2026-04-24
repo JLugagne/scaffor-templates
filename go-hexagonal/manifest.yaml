@@ -1338,6 +1338,49 @@ commands:
         2. Build: go build ./cmd/{{ .Binary }}
 
   # ──────────────────────────────────────────────
+  # SHARED PACKAGE — utility library under internal/pkg/
+  # ──────────────────────────────────────────────
+  - command: add_shared_package
+    description: Add a shared utility package under internal/pkg/<Package>/ (no bounded-context layering)
+    variables:
+      - key: ModulePath
+        description: Go module path (e.g. github.com/senhal-dev/senhal-core)
+      - key: Package
+        description: Package name in lowercase, matches the directory name (e.g. semver, ratelimit, jwtblacklist)
+    files:
+      - source: internal/pkg/shared/doc.go.tmpl
+        destination: internal/pkg/{{ .Package | lower }}/doc.go
+        on_conflict: skip
+      - source: internal/pkg/shared/errors.go.tmpl
+        destination: internal/pkg/{{ .Package | lower }}/errors.go
+        on_conflict: skip
+      - source: internal/pkg/shared/errors_test.go.tmpl
+        destination: internal/pkg/{{ .Package | lower }}/errors_test.go
+        on_conflict: skip
+    hint: |
+      Shared package {{ .Package | lower }} added at internal/pkg/{{ .Package | lower }}/.
+
+      Created:
+        internal/pkg/{{ .Package | lower }}/doc.go          — package doc + shared-package conventions
+        internal/pkg/{{ .Package | lower }}/errors.go       — sentinel error starter (ErrInvalid)
+        internal/pkg/{{ .Package | lower }}/errors_test.go  — smoke test (sentinel is non-nil, importable)
+
+      CONVENTION:
+        Shared packages are leaves in the import graph. Import allowed FROM:
+          - any internal/<context>/ layer (domain/app/inbound/outbound)
+          - any cmd/<binary>/
+          - other internal/pkg/<name>/ packages (kept minimal, prefer zero)
+        Import forbidden: internal/<context>/ from a shared package (shared packages
+        cannot depend on bounded contexts).
+
+      NEXT STEPS:
+        1. Replace or extend the ErrInvalid sentinel with the real errors your package exports
+           (or delete errors.go if the package has no sentinel errors).
+        2. Add the package's real types and functions next to doc.go (new files as needed).
+        3. Grow the tests: delete errors_test.go's placeholder when you have real coverage.
+        4. Import from consumers: "{{ .ModulePath }}/internal/pkg/{{ .Package | lower }}"
+
+  # ──────────────────────────────────────────────
   # COMPOSITE — full entity scaffold across all layers
   # ──────────────────────────────────────────────
   - command: add_entity
