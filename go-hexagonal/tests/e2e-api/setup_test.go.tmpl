@@ -1,0 +1,151 @@
+package e2e_api
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	{{ .Context }} "{{ .ModulePath }}/internal/{{ .Context }}"
+)
+
+var testServer *httptest.Server
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+
+	// 1. Start testcontainers for all external dependencies.
+	// TODO(scaffolding): start a Postgres testcontainer (and any broker/cache this context
+	// uses) and capture the handle for teardown. Required before any e2e test runs — without
+	// a live container, later steps have no connection string.
+	//   container, err := postgres.RunContainer(ctx, testcontainers.WithImage("postgres:16-alpine"), ...)
+	//   if err != nil { log.Fatalf("start postgres container: %v", err) }
+
+	// 2. Get connection strings and create client pools.
+	// TODO(scaffolding): read the container's mapped connection string and build a pgxpool
+	// (or equivalent). Required before migrations / seed / Setup can execute SQL.
+	//   connStr, err := container.ConnectionString(ctx, "sslmode=disable")
+	//   pool, err := pgxpool.New(ctx, connStr)
+
+	// 3. Run all migrations.
+	// TODO(scaffolding): apply every migration in internal/{{ .Context }}/outbound/<adapter>/migrations
+	// against `pool` before tests start. Required before handler tests expect real tables.
+	//   m, err := migrate.New("file://../../internal/{{ .Context }}/outbound/pg/migrations", connStr)
+	//   if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) { log.Fatal(err) }
+
+	// 4. Seed test data with fixed IDs for deterministic assertions.
+	// TODO(scaffolding): insert reference data (projects, actors, look-up rows) with known
+	// UUIDv7 values so tests can assert exact payloads. Required before any GET test that
+	// expects a specific body — without seed, list endpoints return empty.
+	//   seedTestData(ctx, pool)
+
+	// 5. Build the real app with real repos (not mocks).
+	// TODO(scaffolding): construct the bounded context exactly as cmd/{{ .Context }}/main.go
+	// does — real Backends, real config — and call Setup. Required before routes exist.
+	//   app := {{ .Context }}.New()
+	//   if err := app.Setup(ctx, appCfg, {{ .Context }}.Backends{Postgres: pool}); err != nil { log.Fatal(err) }
+
+	// 6. Start httptest.Server.
+	// TODO(scaffolding): wrap the context in an httptest.Server and expose it via the
+	// package-level `testServer` so the doGet/doPost helpers below have a base URL.
+	//   testServer = httptest.NewServer(app)
+
+	code := m.Run()
+
+	// 7. Teardown.
+	// TODO(scaffolding): close the server and terminate the container. Required for
+	// clean test exit — leaked containers block CI and cost local disk.
+	//   testServer.Close()
+	//   container.Terminate(ctx)
+
+	_ = ctx
+	_ = log.Fatal
+	os.Exit(code)
+}
+
+// ─── HTTP test helpers ───────────────────────────────────────────────────────
+
+// Response wraps an HTTP response with convenience methods for assertions.
+type Response struct {
+	*http.Response
+	Body []byte
+}
+
+// JSON unmarshals the response body into dest.
+func (r *Response) JSON(t *testing.T, dest interface{}) {
+	t.Helper()
+	require.NoError(t, json.Unmarshal(r.Body, dest))
+}
+
+// doRequest executes an HTTP request and returns the response with the body pre-read.
+func doRequest(t *testing.T, method, url string, body interface{}) *Response {
+	t.Helper()
+
+	var bodyReader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		require.NoError(t, err)
+		bodyReader = bytes.NewReader(b)
+	}
+
+	req, err := http.NewRequest(method, url, bodyReader)
+	require.NoError(t, err)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	return &Response{Response: resp, Body: respBody}
+}
+
+// doGet sends a GET request.
+func doGet(t *testing.T, url string) *Response {
+	t.Helper()
+	return doRequest(t, http.MethodGet, url, nil)
+}
+
+// doPost sends a POST request with a JSON body.
+func doPost(t *testing.T, url string, body interface{}) *Response {
+	t.Helper()
+	return doRequest(t, http.MethodPost, url, body)
+}
+
+// doPut sends a PUT request with a JSON body.
+func doPut(t *testing.T, url string, body interface{}) *Response {
+	t.Helper()
+	return doRequest(t, http.MethodPut, url, body)
+}
+
+// doPatch sends a PATCH request with a JSON body.
+func doPatch(t *testing.T, url string, body interface{}) *Response {
+	t.Helper()
+	return doRequest(t, http.MethodPatch, url, body)
+}
+
+// doDelete sends a DELETE request.
+func doDelete(t *testing.T, url string) *Response {
+	t.Helper()
+	return doRequest(t, http.MethodDelete, url, nil)
+}
+
+// url builds a full URL from the test server base and a path.
+// Example: url("/api/v1/projects/%s/items/%s", projectID, itemID)
+func url(path string, args ...interface{}) string {
+	if len(args) > 0 {
+		path = fmt.Sprintf(path, args...)
+	}
+	return testServer.URL + path
+}

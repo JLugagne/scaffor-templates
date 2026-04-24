@@ -1,0 +1,19 @@
+package {{ .Entity | lower }}uctest
+
+import "{{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc"
+
+// Mock{{ .Entity }}Commands is a function-based mock for command handler tests.
+// Generate methods with go-surgeon:
+//   go-surgeon mock --interface {{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc.{{ .Entity }}Commands --mock_name Mock{{ .Entity }}Commands --file <this file>
+type Mock{{ .Entity }}Commands struct{}
+
+// Compile-time check.
+var _ {{ .Entity | lower }}uc.{{ .Entity }}Commands = (*Mock{{ .Entity }}Commands)(nil)
+
+// Mock{{ .Entity }}Queries is a function-based mock for query handler tests.
+// Generate methods with go-surgeon:
+//   go-surgeon mock --interface {{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc.{{ .Entity }}Queries --mock_name Mock{{ .Entity }}Queries --file <this file>
+type Mock{{ .Entity }}Queries struct{}
+
+// Compile-time check.
+var _ {{ .Entity | lower }}uc.{{ .Entity }}Queries = (*Mock{{ .Entity }}Queries)(nil)

@@ -1,0 +1,24 @@
+package domain
+
+// DefaultLimit is the fallback page size when none is provided.
+const DefaultLimit = 50
+
+// ListParams carries cursor-based pagination parameters.
+type ListParams struct {
+	Cursor string // opaque cursor, empty = first page
+	Limit  int    // page size, 0 = DefaultLimit
+}
+
+// EffectiveLimit returns Limit or DefaultLimit if unset.
+func (p ListParams) EffectiveLimit() int {
+	if p.Limit <= 0 {
+		return DefaultLimit
+	}
+	return p.Limit
+}
+
+// ListResult holds a page of items with a cursor for the next page.
+type ListResult[T any] struct {
+	Items      []T
+	NextCursor string // empty = no more pages
+}

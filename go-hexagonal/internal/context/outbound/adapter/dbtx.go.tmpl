@@ -1,0 +1,16 @@
+package {{ .Adapter }}adapter
+
+import (
+	"context"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+)
+
+// DBTX abstracts pgxpool.Pool and pgx.Tx so repositories work in both
+// standalone mode (pool) and transactional mode (tx from UnitOfWork).
+type DBTX interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}

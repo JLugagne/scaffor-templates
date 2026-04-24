@@ -1,0 +1,94 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
+
+// Config holds infrastructure configuration shared across all bounded contexts.
+// Loaded from environment variables in main.go, before any bounded context setup.
+//
+// CONSTRAINT: this package only imports stdlib — never import internal packages.
+type Config struct {
+	Server   ServerConfig
+	Postgres PostgresConfig
+	Logger   LoggerConfig
+	OTel     OTelConfig
+}
+
+// ServerConfig holds HTTP server settings.
+type ServerConfig struct {
+	Port int // HTTP listen port (default 8080)
+}
+
+// PostgresConfig holds database connection settings.
+type PostgresConfig struct {
+	URL      string // connection string (required)
+	MaxConns int    // pool max size (default 10)
+}
+
+// LoggerConfig holds structured logging settings.
+type LoggerConfig struct {
+	Level string // "debug", "info", "warn", "error" (default "info")
+}
+
+// OTelConfig holds OpenTelemetry settings.
+type OTelConfig struct {
+	Endpoint    string // OTLP collector endpoint (optional, disables tracing if empty)
+	ServiceName string // service name for traces (default AppName)
+}
+
+// Load reads infrastructure configuration from environment variables.
+// Returns an error if required variables are missing or invalid.
+func Load(appName string) (*Config, error) {
+	cfg := &Config{}
+
+	// Server
+	cfg.Server.Port = envInt("PORT", 8080)
+
+	// Postgres (required)
+	cfg.Postgres.URL = os.Getenv("DATABASE_URL")
+	if cfg.Postgres.URL == "" {
+		return nil, fmt.Errorf("config: DATABASE_URL is required")
+	}
+	cfg.Postgres.MaxConns = envInt("DATABASE_MAX_CONNS", 10)
+	if cfg.Postgres.MaxConns < 1 {
+		return nil, fmt.Errorf("config: DATABASE_MAX_CONNS must be >= 1, got %d", cfg.Postgres.MaxConns)
+	}
+
+	// Logger
+	cfg.Logger.Level = envString("LOG_LEVEL", "info")
+	switch cfg.Logger.Level {
+	case "debug", "info", "warn", "error":
+	default:
+		return nil, fmt.Errorf("config: LOG_LEVEL must be one of debug|info|warn|error, got %q", cfg.Logger.Level)
+	}
+
+	// OTel (optional)
+	cfg.OTel.Endpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	cfg.OTel.ServiceName = envString("OTEL_SERVICE_NAME", appName)
+
+	return cfg, nil
+}
+
+// envString returns the env var value or fallback if unset/empty.
+func envString(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// envInt returns the env var as int, or fallback if unset/empty/unparseable.
+func envInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
+}

@@ -1,0 +1,18 @@
+package domain
+
+// Error represents a domain-level error with a machine-readable code
+// and a human-readable message.
+type Error struct {
+	Code    string
+	Message string
+}
+
+func (e *Error) Error() string {
+	return e.Code + ": " + e.Message
+}
+
+// NewError creates a domain error. Code is machine-readable (used by inbound
+// adapters to map to HTTP/gRPC status codes). Message is human-readable.
+func NewError(code, message string) *Error {
+	return &Error{Code: code, Message: message}
+}

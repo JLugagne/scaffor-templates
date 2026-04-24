@@ -1,0 +1,26 @@
+package app
+
+import "log/slog"
+
+// App implements service interfaces from domain/services/.
+// Dependencies are injected via the constructor — never use globals.
+type App struct {
+	logger *slog.Logger
+	// TODO(scaffolding): add one unexported field per outbound dependency — repository
+	// interfaces, publisher interfaces, the UnitOfWork, any domain service. Each entity
+	// scaffolded via `add_app_service` appends its own Set<Entity>Repo setter that writes
+	// one of these fields from the wire file.
+	// Required before any App method can reach persistence — methods currently reference
+	// fields that don't exist, and `go build` fails on the first `add_app_service` pass.
+	//   projectRepo    projectrepo.ProjectRepository
+	//   orderRepo      orderrepo.OrderRepository
+	//   orderPublisher orderpub.OrderPublisher
+	//   uow            uow.UnitOfWork
+}
+
+// New creates an App with all dependencies injected.
+func New(logger *slog.Logger) *App {
+	return &App{
+		logger: logger,
+	}
+}

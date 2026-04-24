@@ -1,0 +1,18 @@
+package domain
+
+import "github.com/google/uuid"
+
+// ProjectID is the typed identifier for the scoping entity.
+// All repository methods include this as their first parameter
+// after context to enforce tenant isolation (IDOR protection).
+//
+// Format: UUIDv7 as string — time-ordered so natural DB sort order matches
+// creation order (better index locality than UUIDv4, no extra created_at sort).
+type ProjectID string
+
+// NewProjectID generates a new time-ordered UUIDv7 ProjectID.
+// Must is used because NewV7 only errors if crypto/rand is unavailable —
+// at that point the process cannot function anyway.
+func NewProjectID() ProjectID {
+	return ProjectID(uuid.Must(uuid.NewV7()).String())
+}

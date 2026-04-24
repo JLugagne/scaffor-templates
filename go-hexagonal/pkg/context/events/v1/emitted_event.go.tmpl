@@ -1,0 +1,14 @@
+package {{ .Context }}eventsv1
+
+// {{ .Event }}Event is published for other bounded contexts to consume.
+// Use string for IDs and timestamps — events cross service boundaries.
+type {{ .Event }}Event struct {
+	// TODO(scaffolding): declare one field per payload attribute consumers need, using
+	// string for IDs and RFC3339 strings for timestamps (events cross process / language
+	// boundaries — no typed Go domain types here).
+	// Required before publishers can emit meaningful events — empty payloads force
+	// consumers to re-fetch every attribute over REST/gRPC, defeating the event contract.
+	//   ID        string `json:"id"`
+	//   Name      string `json:"name"`
+	Timestamp string `json:"timestamp"`
+}

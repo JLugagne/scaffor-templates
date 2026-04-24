@@ -1,0 +1,11 @@
+package {{ .Entity | lower }}pubtest
+
+import "{{ .ModulePath }}/internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub"
+
+// Mock{{ .Entity }}Publisher is a function-based mock for unit tests.
+// Generate methods with go-surgeon:
+//   go-surgeon mock --interface {{ .ModulePath }}/internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub.{{ .Entity }}Publisher --mock_name Mock{{ .Entity }}Publisher --file <this file>
+type Mock{{ .Entity }}Publisher struct{}
+
+// Compile-time check.
+var _ {{ .Entity | lower }}pub.{{ .Entity }}Publisher = (*Mock{{ .Entity }}Publisher)(nil)

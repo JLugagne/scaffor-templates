@@ -1,0 +1,45 @@
+package shared
+
+import (
+	"context"
+	"net/http"
+	"strings"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+)
+
+// ActorFromRequest extracts a domain.Actor from an HTTP request.
+//
+// Default implementation: trusts X-Actor-ID, X-Project-ID, X-Roles headers.
+// This is the safe default for local development and service-mesh deployments
+// (Istio, Linkerd, API gateway) where an upstream trusted component validates
+// the caller's identity before forwarding.
+//
+// TODO(extension): for internet-facing production services, replace this with
+// JWT validation or session lookup. Headers are trivially forgeable by any
+// client with direct network access to this service.
+func ActorFromRequest(ctx context.Context, r *http.Request) (*domain.Actor, error) {
+	actorID := domain.ActorID(strings.TrimSpace(r.Header.Get("X-Actor-ID")))
+	if actorID == "" {
+		return nil, domain.ErrActorUnauthorized
+	}
+	projectID := domain.ProjectID(strings.TrimSpace(r.Header.Get("X-Project-ID")))
+	if projectID == "" {
+		return nil, domain.ErrActorProjectRequired
+	}
+
+	actor, err := domain.NewActor(actorID, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Roles are comma-separated in X-Roles (e.g. "admin,support").
+	if roles := r.Header.Get("X-Roles"); roles != "" {
+		for _, role := range strings.Split(roles, ",") {
+			if r := strings.TrimSpace(role); r != "" {
+				actor.AddRole(r)
+			}
+		}
+	}
+	return actor, nil
+}

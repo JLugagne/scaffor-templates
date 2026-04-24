@@ -1,0 +1,12 @@
+package grpc
+
+import "google.golang.org/grpc"
+
+// SetupServer applies shared interceptors to the gRPC server.
+// Per-entity services are registered directly by wire files via
+// commands.Setup{Entity}Services and queries.Setup{Entity}Services.
+func SetupServer(srv *grpc.Server) {
+	// Shared interceptors are applied here.
+	// Entity-specific services are registered from wire_*.go files
+	// in the composition root — no manual registration needed.
+}

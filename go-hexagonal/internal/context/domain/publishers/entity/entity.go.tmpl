@@ -1,0 +1,25 @@
+package {{ .Entity | lower }}pub
+
+import (
+	"context"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+)
+
+// {{ .Entity }}Publisher is the outbound port for publishing {{ .Entity }} events.
+// Implemented by outbound adapters (e.g. Kafka, SQS, NATS).
+//
+// Convention: methods take domain types as parameters, never serialized bytes or
+// wire-format structs — serialization is the adapter's responsibility, not the port's.
+{{ if .Events -}}
+// Events: {{ .Events }}
+{{ end -}}
+type {{ .Entity }}Publisher interface {
+{{ if .Events -}}
+{{ range (splitList "," .Events) }}	Publish{{ $.Entity }}{{ . | trim }}(ctx context.Context, item *domain.{{ $.Entity }}) error
+{{ end -}}
+{{ else -}}
+	Publish{{ .Entity }}Created(ctx context.Context, item *domain.{{ .Entity }}) error
+	Publish{{ .Entity }}Deleted(ctx context.Context, id domain.{{ .Entity }}ID) error
+{{ end -}}
+}

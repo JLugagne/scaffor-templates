@@ -1,0 +1,21 @@
+package converters
+
+import (
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+)
+
+// ToProto{{ .Entity }} converts a domain object into a gRPC response.
+// Uses getters since domain fields are unexported.
+// TODO(scaffolding): change the return type to *pb.{{ .Entity }} once proto stubs are
+// generated, and populate every field via its domain getter (item.ID(), item.CreatedAt(),
+// etc.). Typed IDs → string(...), time.Time → timestamppb.New(...), domain.Money → nested
+// proto message, enums → pb.{{ .Entity }}Status(int32(item.Status())).
+// Required before any gRPC handler can return a non-nil response — handler tests assert
+// field equality against a proto struct.
+func ToProto{{ .Entity }}(item *domain.{{ .Entity }}) {
+	_ = item
+	//   return &pb.{{ .Entity }}{
+	//       Id:        string(item.ID()),
+	//       CreatedAt: timestamppb.New(item.CreatedAt()),
+	//   }
+}

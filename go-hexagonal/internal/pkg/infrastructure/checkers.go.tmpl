@@ -1,0 +1,74 @@
+package infrastructure
+
+import (
+	"context"
+	"errors"
+	"sync/atomic"
+)
+
+// pinger is a minimal interface satisfied by pgxpool.Pool, redis.Client, etc.
+type pinger interface {
+	Ping(ctx context.Context) error
+}
+
+type pingChecker struct {
+	name string
+	p    pinger
+}
+
+func (c *pingChecker) Name() string                    { return c.name }
+func (c *pingChecker) Check(ctx context.Context) error { return c.p.Ping(ctx) }
+
+// Postgres returns a health Checker for a pgx connection pool.
+func Postgres(pool pinger) Checker {
+	return &pingChecker{name: "postgres", p: pool}
+}
+
+// Redis returns a health Checker for a Redis client.
+func Redis(client pinger) Checker {
+	return &pingChecker{name: "redis", p: client}
+}
+
+// Named returns a Checker backed by any Ping(ctx)-compatible client.
+func Named(name string, p pinger) Checker {
+	return &pingChecker{name: name, p: p}
+}
+
+// ReadyFlag is a thread-safe boolean flag. It starts as "not ready" and
+// becomes ready when MarkReady is called. Used by bounded contexts to
+// signal that their Setup (migrations, wiring) has completed.
+type ReadyFlag struct {
+	ready atomic.Bool
+}
+
+// MarkReady signals that the component is initialized and ready to serve.
+func (f *ReadyFlag) MarkReady() { f.ready.Store(true) }
+
+// IsReady returns true after MarkReady has been called.
+func (f *ReadyFlag) IsReady() bool { return f.ready.Load() }
+
+type appChecker struct {
+	name string
+	flag *ReadyFlag
+}
+
+func (c *appChecker) Name() string { return c.name }
+func (c *appChecker) Check(_ context.Context) error {
+	if !c.flag.IsReady() {
+		return errors.New("not ready (setup in progress)")
+	}
+	return nil
+}
+
+// App returns a Checker that reports "not ready" until flag.MarkReady() is called.
+// Use this to include bounded context readiness in /readyz:
+//
+//	flag := &infrastructure.ReadyFlag{}
+//	infra.SetupHealthz(mux, infra.App("catalog", flag))
+//	go func() {
+//	    catalog.Setup(...)
+//	    flag.MarkReady()
+//	}()
+func App(name string, flag *ReadyFlag) Checker {
+	return &appChecker{name: name, flag: flag}
+}

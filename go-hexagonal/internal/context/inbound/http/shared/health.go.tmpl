@@ -1,0 +1,8 @@
+package shared
+
+// Health check endpoints (/healthz, /readyz) live in internal/pkg/infrastructure.
+// They are registered by main.go via:
+//
+//   infra.SetupHealthz(mux, infra.Postgres(pool), infra.Named("kafka", kafkaClient))
+//
+// This keeps health probes infrastructure-level (not context-specific).

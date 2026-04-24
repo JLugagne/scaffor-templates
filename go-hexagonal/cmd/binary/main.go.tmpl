@@ -1,0 +1,48 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/config"
+)
+
+func main() {
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	// Setup structured logger
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
+	// Graceful shutdown context
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	_ = cfg
+	_ = ctx
+
+	// TODO(scaffolding): implement the {{ .Binary }} process loop. This binary reuses the
+	// {{ .Context }} bounded context — wire the same adapters the main API uses (UoW,
+	// repositories, publishers) and drive them from a work source appropriate to the
+	// binary's role:
+	//   - worker: pull jobs from a queue, invoke usecase methods, ack on success
+	//   - consumer: subscribe to broker topics, dispatch to inbound/<proto>/consumers
+	//   - migrator: run migrate.Up against cfg.Postgres.URL, then return
+	//   - scheduler: tick on cron expressions, invoke usecases, persist last-run state
+	// Required before `{{ .Binary }}` does any work — currently the process logs and
+	// blocks on ctx.Done() forever, which passes health checks but performs no function.
+	slog.Info("{{ .Binary }} started")
+
+	<-ctx.Done()
+	slog.Info("{{ .Binary }} shutdown complete")
+}

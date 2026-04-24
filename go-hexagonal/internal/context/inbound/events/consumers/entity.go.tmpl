@@ -1,0 +1,49 @@
+package consumers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	events "{{ .ModulePath }}/pkg/{{ .SourceContext }}/events/v1"
+)
+
+// {{ .Entity }}Consumer handles events from the {{ .SourceContext }} bounded context.
+// It depends on local usecase interfaces — wire the appropriate Commands
+// from the composition root.
+type {{ .Entity }}Consumer struct {
+	// TODO(scaffolding): declare one field per local usecase interface this consumer invokes.
+	// Required before Handle*Event can act on the local bounded context — without these
+	// dependencies the consumer silently drops every event.
+	// Example (cross-context AccountDeleted → anonymize local orders):
+	//   orderCmds orderuc.OrderCommands
+}
+
+// New{{ .Entity }}Consumer creates a new consumer for {{ .SourceContext }} events.
+// Inject local usecase Commands from the composition root:
+//
+//	consumer := consumers.New{{ .Entity }}Consumer(orderCmds)
+func New{{ .Entity }}Consumer() *{{ .Entity }}Consumer {
+	return &{{ .Entity }}Consumer{}
+}
+
+// Handle{{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }}Event handles {{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }} events from the {{ .SourceContext }} bounded context.
+func (c *{{ .Entity }}Consumer) Handle{{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }}Event(ctx context.Context, payload []byte) error {
+	var event events.{{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }}Event
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return fmt.Errorf("unmarshal {{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }} event from {{ .SourceContext }}: %w", err)
+	}
+
+	// TODO(scaffolding): map event fields to domain value types (IDs, Money, etc.) and
+	// invoke the appropriate local usecase method on c.<field>.
+	// Required before this consumer has any observable effect — without a usecase call,
+	// events are parsed and discarded, and the local context stays inconsistent.
+	// This consumer receives events from {{ .SourceContext }} but acts on the LOCAL
+	// bounded context's entities via its local usecase interfaces — do NOT reach into
+	// {{ .SourceContext }} aggregates directly.
+	// Example (cross-context):
+	//   accountID := domain.AccountID(event.AccountID)
+	//   return c.orderCmds.AnonymizeOrdersForAccount(ctx, accountID)
+	_ = event
+	return nil
+}

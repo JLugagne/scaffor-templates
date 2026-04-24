@@ -1,0 +1,36 @@
+package grpc
+
+import (
+	"context"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+
+	"google.golang.org/grpc/metadata"
+)
+
+// ActorFromContext extracts a domain.Actor from gRPC metadata.
+// Reads authentication metadata and builds the domain Actor.
+// Returns a domain error if the request is unauthenticated or malformed.
+func ActorFromContext(ctx context.Context) (*domain.Actor, error) {
+	// TODO(scaffolding): implement actor extraction from gRPC metadata.
+	// Required before any gRPC handler test passes — every handler calls this first.
+	// Pick ONE of the following based on the project's auth method:
+	//
+	//   JWT (authorization metadata):
+	//     md, ok := metadata.FromIncomingContext(ctx); if !ok return ErrActorUnauthorized.
+	//     Read md.Get("authorization"), strip the "Bearer " prefix, validate signature
+	//     against the secret/issuer from config, extract 'sub' as domain.ActorID and
+	//     'project_id' as domain.ProjectID, then return domain.NewActor(...).
+	//
+	//   Header-based (trusted upstream / service mesh):
+	//     md, ok := metadata.FromIncomingContext(ctx); if !ok return ErrActorUnauthorized.
+	//     actorIDs := md.Get("x-actor-id"); projectIDs := md.Get("x-project-id").
+	//     Require both non-empty; return domain.NewActor(domain.ActorID(actorIDs[0]),
+	//     domain.ProjectID(projectIDs[0])).
+	//
+	//   mTLS peer identity:
+	//     Use peer.FromContext(ctx) + TLS cert SAN/CN to derive ActorID; ProjectID
+	//     typically comes from a separate "x-project-id" metadata header.
+	_ = metadata.FromIncomingContext
+	return nil, domain.ErrActorUnauthorized
+}

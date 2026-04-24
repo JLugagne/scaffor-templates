@@ -1,0 +1,53 @@
+package v1
+
+// Create{{ .Entity }}Request defines the JSON body for creating a {{ .Entity }}.
+type Create{{ .Entity }}Request struct {
+	// TODO(scaffolding): declare one field per request attribute with `json:"..."` and
+	// `validate:"..."` tags. Validation happens in handlers via validator.Struct(req), so
+	// every constraint you care about (required, min/max, email, uuid, oneof=...) MUST be
+	// expressed here — the domain layer does not re-validate primitive shapes.
+	// Required before POST/PUT handlers accept real payloads — empty request types pass
+	// validation trivially and the handler then fails to build a domain entity.
+	//   Name   string `json:"name"   validate:"required,min=1,max=255"`
+	//   Amount int64  `json:"amount" validate:"required,gt=0"`
+}
+
+// Validate checks that all fields satisfy their validation constraints.
+func (r *Create{{ .Entity }}Request) Validate() error {
+	return validate.Struct(r)
+}
+
+// Update{{ .Entity }}Request defines the JSON body for updating a {{ .Entity }}.
+type Update{{ .Entity }}Request struct {
+	// TODO(scaffolding): declare one field per request attribute with `json:"..."` and
+	// `validate:"..."` tags. Validation happens in handlers via validator.Struct(req), so
+	// every constraint you care about (required, min/max, email, uuid, oneof=...) MUST be
+	// expressed here — the domain layer does not re-validate primitive shapes.
+	// Required before POST/PUT handlers accept real payloads — empty request types pass
+	// validation trivially and the handler then fails to build a domain entity.
+	//   Name   string `json:"name"   validate:"required,min=1,max=255"`
+	//   Amount int64  `json:"amount" validate:"required,gt=0"`
+}
+
+// Validate checks that all fields satisfy their validation constraints.
+func (r *Update{{ .Entity }}Request) Validate() error {
+	return validate.Struct(r)
+}
+
+// {{ .Entity }}Response is returned for single-resource endpoints.
+type {{ .Entity }}Response struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+	// TODO(scaffolding): declare one field per domain attribute worth exposing over HTTP,
+	// using JSON-safe types (string for typed IDs, RFC3339 string for time.Time, split
+	// amount/currency for Money). Keep unexported domain details out of the response.
+	// Required before clients see real data — ToPublic{{ .Entity }} has nowhere to write.
+	//   Name     string `json:"name"`
+	//   Amount   int64  `json:"amount"`
+	//   Currency string `json:"currency"`
+
+// {{ .Entity }}ListResponse wraps a cursor-paginated collection.
+type {{ .Entity }}ListResponse struct {
+	Items      []{{ .Entity }}Response `json:"items"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}

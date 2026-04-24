@@ -1,0 +1,20 @@
+package uowtest
+
+import (
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/uow"
+)
+
+// MockRepositories is a test double for uow.Repositories.
+// Add one field per accessor as you add entities to the UoW.
+// See add_uow_accessor for the pattern.
+type MockRepositories struct {
+	// TODO(scaffolding): add one `XxxFunc func() xxxrepo.XxxRepository` field per accessor
+	// on the uow.Repositories interface. The generated mock method returns XxxFunc() when
+	// set, else nil. Required before any app-service unit test can inject mock repositories
+	// into a transactional path — without these fields, the mock compiles but returns nil
+	// and the usecase nil-panics.
+	//   BooksFunc  func() bookrepo.BookRepository
+	//   OrdersFunc func() orderrepo.OrderRepository
+}
+
+var _ uow.Repositories = (*MockRepositories)(nil)

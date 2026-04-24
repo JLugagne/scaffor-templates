@@ -1,0 +1,49 @@
+package converters
+
+import (
+	"time"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+	v1 "{{ .ModulePath }}/pkg/{{ .Context }}/http/v1"
+)
+
+// ToPublic{{ .Entity }} converts a domain object into an API response.
+// Uses getters since domain fields are unexported.
+func ToPublic{{ .Entity }}(item *domain.{{ .Entity }}) v1.{{ .Entity }}Response {
+	return v1.{{ .Entity }}Response{
+		ID:        string(item.ID()),
+		CreatedAt: item.CreatedAt().Format(time.RFC3339),
+		// TODO(scaffolding): map every public domain field via its getter (item.Name(), etc.)
+		// into the matching v1.{{ .Entity }}Response field. Format time fields with RFC3339,
+		// Money with Amount/Currency split, typed IDs with string(...) cast.
+		// Required before any handler response test passes — missing fields yield partial JSON.
+	}
+}
+
+// ToPublic{{ .Entity }}List converts a ListResult into a paginated API response.
+func ToPublic{{ .Entity }}List(result *domain.ListResult[*domain.{{ .Entity }}]) v1.{{ .Entity }}ListResponse {
+	items := make([]v1.{{ .Entity }}Response, len(result.Items))
+	for i, item := range result.Items {
+		items[i] = ToPublic{{ .Entity }}(item)
+	}
+	return v1.{{ .Entity }}ListResponse{
+		Items:      items,
+		NextCursor: result.NextCursor,
+	}
+}
+
+// To{{ .Entity }}Domain converts a Create{{ .Entity }}Request into a new domain object.
+// Called by command handlers before passing to the app service.
+// TODO(scaffolding): pass the matching request fields to domain.New{{ .Entity }} in the
+// exact order the constructor expects. Convert primitive request fields into domain value
+// types before passing (domain.Money, domain.{{ .Entity }}ID, etc.) so the constructor
+// sees already-validated values.
+// Required before the POST handler can build a domain entity — returns nil otherwise and
+// downstream usecase calls will panic.
+func To{{ .Entity }}Domain(req v1.Create{{ .Entity }}Request) (*domain.{{ .Entity }}, error) {
+	return domain.New{{ .Entity }}(
+	// TODO(scaffolding): list req fields here in constructor order, e.g.:
+	//   req.Name,
+	//   domain.NewMoney(req.Amount, req.Currency),
+	)
+}

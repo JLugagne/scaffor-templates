@@ -1,0 +1,16 @@
+package e2e_api
+
+// E2E tests for {{ .Entity }} API endpoints.
+// Generate test skeletons with go-surgeon after implementing handlers:
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go --identifier Service.create{{ .Entity }}
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go --identifier Service.update{{ .Entity }}
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go --identifier Service.delete{{ .Entity }}
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go --identifier Service.get{{ .Entity }}ByID
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go --identifier Service.list{{ .Entity }}
+//
+// Tests must cover:
+//   - Full CRUD lifecycle against real infrastructure (testcontainers)
+//   - IDOR: access scope B's data from scope A's endpoint -> 404
+//   - Validation: invalid IDs, missing fields -> 400
+//   - Empty results return [] not null
+//   - Structured JSON error responses

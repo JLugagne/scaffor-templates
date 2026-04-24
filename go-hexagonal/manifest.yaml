@@ -1,0 +1,1393 @@
+name: go-hexagonal
+description: |
+  Hexagonal architecture scaffolding for Go projects.
+  Provides a bootstrap command for initial project setup and atomic incremental
+  commands for adding entities, adapters, handlers, tests, events, and migrations.
+  All layers enforce strict dependency rules: domain imports nothing, app imports
+  domain, inbound imports domain+pkg, outbound imports domain.
+
+commands:
+  # ──────────────────────────────────────────────
+  # BOOTSTRAP — one-time project initialization
+  # ──────────────────────────────────────────────
+  - command: bootstrap
+    description: Scaffold a complete hexagonal Go project from scratch
+    variables:
+      - key: AppName
+        description: Application/project name (lowercase, used for directories and package names)
+      - key: ModulePath
+        description: Go module path (e.g. github.com/org/repo)
+      - key: Context
+        description: Bounded context name (e.g. server, billing, auth)
+    files:
+      - source: cmd/context/main.go.tmpl
+        destination: cmd/{{ .Context }}/main.go
+      - source: internal/context/init.go.tmpl
+        destination: internal/{{ .Context }}/init.go
+      - source: internal/context/domain/errors.go.tmpl
+        destination: internal/{{ .Context }}/domain/errors.go
+      - source: internal/context/domain/types.go.tmpl
+        destination: internal/{{ .Context }}/domain/types.go
+      - source: internal/context/domain/query.go.tmpl
+        destination: internal/{{ .Context }}/domain/query.go
+      - source: internal/context/domain/services/doc.go.tmpl
+        destination: internal/{{ .Context }}/domain/services/doc.go
+      - source: internal/pkg/config/config.go.tmpl
+        destination: internal/pkg/config/config.go
+      - source: internal/pkg/infrastructure/healthcheck.go.tmpl
+        destination: internal/pkg/infrastructure/healthcheck.go
+      - source: internal/pkg/infrastructure/checkers.go.tmpl
+        destination: internal/pkg/infrastructure/checkers.go
+      - source: internal/pkg/infrastructure/otel.go.tmpl
+        destination: internal/pkg/infrastructure/otel.go
+      - source: internal/context/config/config.go.tmpl
+        destination: internal/{{ .Context }}/config/config.go
+      - source: internal/context/app/config.go.tmpl
+        destination: internal/{{ .Context }}/app/config.go
+      - source: internal/context/inbound/http/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/init.go
+      - source: internal/context/domain/actor.go.tmpl
+        destination: internal/{{ .Context }}/domain/actor.go
+      - source: internal/context/inbound/http/shared/errors.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/errors.go
+      - source: internal/context/inbound/http/shared/actor.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/actor.go
+      - source: internal/context/inbound/http/shared/health.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/health.go
+      - source: internal/context/inbound/http/shared/middleware.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/middleware.go
+      - source: internal/context/inbound/grpc/actor.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/actor.go
+      - source: internal/context/inbound/http/commands/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/commands/init.go
+      - source: internal/context/inbound/http/queries/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/queries/init.go
+      - source: pkg/context/http/v1/types.go.tmpl
+        destination: pkg/{{ .Context }}/http/v1/types.go
+      - source: pkg/context/events/v1/consumed.go.tmpl
+        destination: pkg/{{ .Context }}/events/v1/consumed.go
+      - source: pkg/context/events/v1/emitted.go.tmpl
+        destination: pkg/{{ .Context }}/events/v1/emitted.go
+      - source: tests/e2e-api/setup_test.go.tmpl
+        destination: tests/e2e-api/setup_test.go
+      - source: go.mod.tmpl
+        destination: go.mod
+      - source: Makefile.tmpl
+        destination: Makefile
+      - source: Dockerfile.tmpl
+        destination: Dockerfile
+      - source: docker-compose.yml.tmpl
+        destination: docker-compose.yml
+      - source: go-arch-lint.yml.tmpl
+        destination: .go-arch-lint.yml
+      - source: github/workflows/ci.yml.tmpl
+        destination: .github/workflows/ci.yml
+      - source: gitignore.tmpl
+        destination: .gitignore
+      - source: README.md.tmpl
+        destination: README.md
+      - source: ARCHITECTURE.md.tmpl
+        destination: ARCHITECTURE.md
+    shell_commands:
+      - command: go mod tidy
+    hint: |
+      Project {{ .AppName }} bootstrapped with context {{ .Context }}.
+
+      Created:
+        cmd/{{ .Context }}/main.go                                     — entry point (creates backends, health, graceful shutdown)
+        internal/pkg/config/config.go                                  — global infra config (server, postgres, logger, otel)
+        internal/pkg/infrastructure/healthcheck.go                     — /healthz + /readyz with composable checkers
+        internal/pkg/infrastructure/checkers.go                        — Postgres(), Redis(), Named() health checkers
+        internal/{{ .Context }}/init.go                                — composition root (receives Backends, wires DI)
+        internal/{{ .Context }}/config/config.go                       — context-specific business config
+        internal/{{ .Context }}/domain/errors.go                       — domain error pattern
+        internal/{{ .Context }}/domain/types.go                        — typed IDs (ProjectID)
+        internal/{{ .Context }}/domain/actor.go                        — Actor type (authenticated identity)
+        internal/{{ .Context }}/domain/query.go                        — ListParams + ListResult (cursor pagination)
+        internal/{{ .Context }}/domain/services/doc.go                 — pure domain logic placeholder
+        internal/{{ .Context }}/app/config.go                          — app service with DI
+        internal/{{ .Context }}/inbound/http/init.go                   — shared middleware setup
+        internal/{{ .Context }}/inbound/http/shared/                   — errors, actor, middleware
+        internal/{{ .Context }}/inbound/http/commands/init.go          — shared validator factory
+        internal/{{ .Context }}/inbound/http/queries/init.go           — shared validator factory
+        internal/{{ .Context }}/inbound/grpc/actor.go                  — ActorFromContext helper
+        pkg/{{ .Context }}/http/v1/                                    — public HTTP types (requests, responses)
+        pkg/{{ .Context }}/events/v1/                                  — public event types (consumed, emitted)
+        tests/e2e-api/setup_test.go                                    — e2e helpers (doGet, doPost, etc.)
+        ARCHITECTURE.md                                                — design decisions and rationale
+        .go-arch-lint.yml, .gitignore, README.md                       — project config
+        go.mod, Makefile, Dockerfile, docker-compose.yml, CI           — build infrastructure
+
+      Architecture (startup sequence):
+        1. main.go loads config, creates infra backends (pgxpool, kafka, ...)
+        2. main.go creates bounded context with {{ .Context }}.New() (instant, returns 503 handler)
+        3. main.go registers /healthz + /readyz with App() checker (reports "not ready")
+        4. HTTP server starts — /healthz=200, /readyz=503 (app not ready yet)
+        5. In background goroutine: {{ .Context }}.Setup(cfg, backends) runs migrations, wires DI
+        6. Setup swaps 503 handler for real routes, appReady.MarkReady() → /readyz=200
+        Orchestrated via oklog/run group (HTTP server + setup + signal handler).
+
+      NEXT STEPS:
+        1. Run: go get -u -a -t ./... && go mod tidy
+        2. Add context-specific settings to internal/{{ .Context }}/config/config.go
+        3. Add your first entity:
+           scaffor execute go-hexagonal add_entity --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity=YourEntity --set Adapter=pg
+
+      Next steps — use scaffor incremental commands for each entity, adapter, and
+      handler. Do NOT write these files manually with Write/Edit/go-surgeon.
+
+      For each domain entity (e.g. Book, Order):
+        1. add_domain_entity        — the entity struct, typed ID, errors
+        2. add_repository_interface — the repository port + its mock
+        3. add_repository_adapter   — the Postgres implementation
+        4. add_usecase_interface    — Commands and Queries ports + mocks
+        5. add_app_service          — the app-layer implementation
+        6. add_wire                 — register the entity in the composition root
+        7. add_http_handler         — CRUD HTTP routes + converter
+        8. add_app_unit_test        — unit tests with mocked dependencies
+
+      For cross-bounded-context events (the project consumes events from another
+      context):
+        - add_consumed_event     — the event payload type under pkg/<source>/events/
+        - add_consumer_handler   — REQUIRED, generates both the handler AND its
+                                   automatic boot-time wiring via RegisterConsumer
+                                   in init.go. Without this step, the consumer
+                                   exists but never receives messages.
+
+      For events this context emits:
+        - add_emitted_event     — the event payload type under pkg/<context>/events/
+        - add_publisher_adapter — the publisher implementation + its mock
+
+      For multi-resource atomic operations (e.g. create order + decrement stock):
+        - add_domain_uow         — the UnitOfWork port
+        - add_uow_adapter        — the Postgres UoW implementation
+        - add_uow_accessor       — one per repository participating in transactions
+
+      Run `scaffor list` to see all available commands. Run `scaffor doc <command>`
+      to see the variables and files for each. Manual coding (Write/Edit) should
+      be the exception, used only for business logic inside templates, never to
+      replace a scaffor command that exists for the structural work.
+
+  # ──────────────────────────────────────────────
+  # DOMAIN LAYER — atomic domain additions
+  # ──────────────────────────────────────────────
+  - command: add_domain_entity
+    description: Add a domain entity with typed ID and domain errors
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase (e.g. Project, Notification)
+    files:
+      - source: internal/context/domain/entity.go.tmpl
+        destination: internal/{{ .Context }}/domain/{{ .Entity | lower }}.go
+    hint: |
+      Domain entity {{ .Entity }} added to {{ .Context }}.
+
+      Created:
+        internal/{{ .Context }}/domain/{{ .Entity | lower }}.go — typed ID, entity struct, domain errors
+
+      TESTS FOR THIS LAYER:
+        Domain entities are pure value objects — test them directly with table-driven unit tests.
+        No mocks or infrastructure needed. Test file: internal/{{ .Context }}/domain/{{ .Entity | lower }}_test.go
+        Cover: constructor validation, setter validation, state transitions (e.g. MarkPaid), computed fields.
+        Generate a skeleton:
+          go-surgeon test -f internal/{{ .Context }}/domain/{{ .Entity | lower }}.go -i New{{ .Entity }}
+
+      NEXT STEPS:
+        1. Define {{ .Entity }} fields in domain/{{ .Entity | lower }}.go
+        2. Write domain unit tests (red → green)
+        3. Add repository interface:
+           scaffor execute go-hexagonal add_repository_interface --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+        4. Add usecase interfaces (Commands + Queries):
+           scaffor execute go-hexagonal add_usecase_interface --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+
+      Typical next steps:
+        - add_repository_interface  — to persist this entity
+        - add_usecase_interface     — Commands and Queries contracts
+        - Then add_app_service, add_wire, add_http_handler in that order
+
+  - command: add_domain_uow
+    description: Add a Unit of Work interface to the domain layer
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+    files:
+      - source: internal/context/domain/uow/uow.go.tmpl
+        destination: internal/{{ .Context }}/domain/uow/uow.go
+      - source: internal/context/domain/uow/uowtest/mock.go.tmpl
+        destination: internal/{{ .Context }}/domain/uow/uowtest/mock.go
+      - source: internal/context/domain/uow/uowtest/mock_uow.go.tmpl
+        destination: internal/{{ .Context }}/domain/uow/uowtest/mock_uow.go
+    hint: |
+      Unit of Work interface added to {{ .Context }}.
+
+      Created:
+        internal/{{ .Context }}/domain/uow/uow.go              — UoW interface + Repositories factory
+        internal/{{ .Context }}/domain/uow/uowtest/mock.go     — MockRepositories (updated by add_uow_accessor)
+        internal/{{ .Context }}/domain/uow/uowtest/mock_uow.go — MockUnitOfWork (stable, never overwritten)
+
+      NEXT STEPS:
+        1. Add repository methods to the Repositories interface in uow.go
+        2. Update the mock Repositories in uowtest/mock.go to match
+        3. Add the pg adapter:
+           scaffor execute go-hexagonal add_uow_adapter --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Adapter=pg
+
+  - command: add_uow_adapter
+    description: Add a concrete UnitOfWork adapter implementation (outbound) backed by pgx transactions
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Adapter
+        description: Adapter technology name (e.g. pg)
+    files:
+      - source: internal/context/outbound/adapter/uow.go.tmpl
+        destination: internal/{{ .Context }}/outbound/{{ .Adapter }}/uow.go
+    hint: |
+      UnitOfWork adapter ({{ .Adapter }}) added.
+
+      Created:
+        internal/{{ .Context }}/outbound/{{ .Adapter }}/uow.go — pgUnitOfWork + pgRepositories
+
+      NEXT STEPS:
+        1. For each entity that needs UoW, add its accessor:
+           scaffor execute go-hexagonal add_uow_accessor --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity=Book --set Adapter={{ .Adapter }}
+        2. Wire NewUnitOfWork(pool) in the composition root (init.go)
+
+  - command: add_uow_accessor
+    description: Add a repository accessor to the UoW Repositories interface, its mock, and the pg implementation
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase (e.g. Book, Order)
+      - key: Adapter
+        description: Adapter technology name (e.g. pg)
+    files: []
+    shell_commands:
+      # Step 1: inject accessor into the Repositories interface.
+      # Pipeline: extract code block from `go-surgeon symbol --body`, isolate the
+      # interface declaration, insert the new method before the closing brace
+      # (idempotent — skipped if already present), then pipe to update-interface.
+      - command: |-
+          go-surgeon symbol Repositories --dir internal/{{ .Context }}/domain/uow --body \
+            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
+            | sed 's/^[0-9]*: //' \
+            | awk '/^type .* interface {$/,/^}$/' \
+            | awk -v m="	{{ .Entity }}s() {{ .Entity | lower }}repo.{{ .Entity }}Repository" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
+            | go-surgeon update-interface --file internal/{{ .Context }}/domain/uow/uow.go --id Repositories
+      - command: >-
+          echo 'func (r *pgRepositories) {{ .Entity }}s() {{ .Entity | lower }}repo.{{ .Entity }}Repository { return New{{ .Entity }}RepositoryTx(r.tx) }'
+          | go-surgeon update-func
+          --file internal/{{ .Context }}/outbound/{{ .Adapter }}/uow.go
+          --id pgRepositories.{{ .Entity }}s
+      - command: >-
+          echo 'func (m *MockRepositories) {{ .Entity }}s() {{ .Entity | lower }}repo.{{ .Entity }}Repository { if m.{{ .Entity }}sFunc != nil { return m.{{ .Entity }}sFunc() }; return nil }'
+          | go-surgeon update-func
+          --file internal/{{ .Context }}/domain/uow/uowtest/mock.go
+          --id MockRepositories.{{ .Entity }}s
+    hint: |
+      All 3 steps automated:
+        1. Repositories interface updated in domain/uow/uow.go
+        2. pgRepositories.{{ .Entity }}s() added in outbound/{{ .Adapter }}/uow.go
+        3. MockRepositories.{{ .Entity }}s() added in domain/uow/uowtest/mock.go
+
+      ── Usage pattern ────────────────────────────────────────────────────────────
+
+        err := a.uow.Do(ctx, func(ctx context.Context, repos uow.Repositories) error {
+            repo := repos.{{ .Entity }}s()
+            // ... atomic operations across repos
+            return nil
+        })
+
+  # ──────────────────────────────────────────────
+  # REPOSITORY LAYER — ports and adapters
+  # ──────────────────────────────────────────────
+  - command: add_repository_interface
+    description: Add a repository interface (outbound port) with mock and contract tests
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/domain/repositories/entity/entity.go.tmpl
+        destination: internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo/{{ .Entity | lower }}repo.go
+      - source: internal/context/domain/repositories/entity/entitytest/contract.go.tmpl
+        destination: internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo/{{ .Entity | lower }}repotest/contract.go
+    post_commands:
+      - add_repository_mock
+    hint: |
+      Repository interface for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo/{{ .Entity | lower }}repo.go                 — repository interface (outbound port, package {{ .Entity | lower }}repo)
+        internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo/{{ .Entity | lower }}repotest/contract.go — shared contract suite (run against every adapter)
+        internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo/{{ .Entity | lower }}repotest/mock.go      — function-based mock (auto-generated)
+
+      The mock is auto-generated via post_command — no manual step needed on first run.
+
+      TESTS FOR THIS LAYER:
+        contract.go defines the shared test suite. Every adapter (pg, redis, …) runs it via a thin
+        testcontainer harness — the suite itself never changes when you add an adapter.
+        When you add a method to the interface:
+          1. Add a case to contract.go covering the new method
+          2. Regenerate the mock:
+             scaffor execute go-hexagonal add_repository_mock --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+
+      NEXT STEPS:
+        1. Customize the interface methods for {{ .Entity }}'s needs
+        2. Add test cases to {{ .Entity | lower }}repotest/contract.go for each method
+        3. Add the adapter implementation:
+           scaffor execute go-hexagonal add_repository_adapter --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter=pg
+
+      Typical next steps:
+        - add_repository_adapter — implement the interface against your datastore
+        - add_app_service        — use the interface from the app layer
+
+  - command: add_repository_mock
+    description: Add a function-based mock for a repository interface
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/domain/repositories/entity/entitytest/mock.go.tmpl
+        destination: internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo/{{ .Entity | lower }}repotest/mock.go
+        on_conflict: force
+    shell_commands:
+      - command: "go-surgeon mock {{ .ModulePath }}/internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo.{{ .Entity }}Repository --mock-name Mock{{ .Entity }}Repository --file internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo/{{ .Entity | lower }}repotest/mock.go"
+    hint: |
+      Mock for {{ .Entity }}Repository added and generated via go-surgeon.
+
+      Created:
+        internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo/{{ .Entity | lower }}repotest/mock.go
+
+      Re-run after any interface change:
+        scaffor execute go-hexagonal add_repository_mock --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+
+  - command: add_repository_adapter
+    description: Add a concrete repository adapter implementation (outbound)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+      - key: Adapter
+        description: Adapter technology name (e.g. pg, redis, mongo)
+    files:
+      - source: internal/context/outbound/adapter/dbtx.go.tmpl
+        destination: internal/{{ .Context }}/outbound/{{ .Adapter }}/dbtx.go
+        on_conflict: skip
+      - source: internal/context/outbound/adapter/repository_entity.go.tmpl
+        destination: internal/{{ .Context }}/outbound/{{ .Adapter }}/repository_{{ .Entity | lower }}.go
+    post_commands:
+      - add_repository_adapter_contract_test
+    hint: |
+      {{ .Entity }} repository adapter ({{ .Adapter }}) added.
+
+      Created:
+        internal/{{ .Context }}/outbound/{{ .Adapter }}/repository_{{ .Entity | lower }}.go — adapter implementing {{ .Entity }}Repository
+
+      NEXT STEPS:
+        1. Implement the repository methods with real queries
+        2. Remember: every query MUST include scope ID (IDOR protection)
+        3. If UoW exists, add a repo accessor to pgRepositories and to domain/uow/uow.go:
+           go-surgeon create --object func --file internal/{{ .Context }}/outbound/{{ .Adapter }}/uow.go \
+             -i pgRepositories.{{ .Entity }}s \
+             --content 'func (r *pgRepositories) {{ .Entity }}s() {{ .Entity | lower }}.{{ .Entity }}Repository { return New{{ .Entity }}RepositoryTx(r.tx) }'
+
+  - command: add_repository_adapter_contract_test
+    description: Add a contract test that runs shared tests against a real adapter via testcontainers
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+      - key: Adapter
+        description: Adapter technology name
+    files: []
+    shell_commands:
+      - command: "go-surgeon test -f internal/{{ .Context }}/outbound/{{ .Adapter }}/repository_{{ .Entity | lower }}.go -i {{ .Entity | lower }}Repository.Create"
+    hint: |
+      Contract test for {{ .Entity }} ({{ .Adapter }}) adapter generated by go-surgeon.
+
+      Generated file: internal/{{ .Context }}/outbound/{{ .Adapter }}/repository_{{ .Entity | lower }}_test.go
+
+      TESTS FOR THIS LAYER:
+        The generated test wires up a real {{ .Adapter }} backend (testcontainers) and delegates
+        to the shared contract suite in {{ .Entity | lower }}repotest.BookContractTesting(t, repo).
+        DO NOT rewrite or simplify the generated test — fill in the TODO test cases only.
+
+        COVERAGE RULE: every method on the {{ .Entity }}Repository interface must have a contract
+        test. The scaffold only generates a stub for Create — generate stubs for all remaining
+        methods and keep coverage complete as the interface evolves:
+          go-surgeon test -f internal/{{ .Context }}/outbound/{{ .Adapter }}/repository_{{ .Entity | lower }}.go -i {{ .Entity | lower }}Repository.<MethodName>
+
+        Each new adapter added later must call the same contract suite — copy the testcontainer
+        setup from the pg test and replace the backend construction.
+
+  # ──────────────────────────────────────────────
+  # USECASE LAYER — inbound ports (Commands + Queries)
+  # ──────────────────────────────────────────────
+  - command: add_usecase_interface
+    description: Add usecase interfaces (Commands + Queries inbound ports) with mocks and contract tests
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/domain/usecases/entity/entity.go.tmpl
+        destination: internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc/{{ .Entity | lower }}uc.go
+      - source: internal/context/domain/usecases/entity/entitytest/contract.go.tmpl
+        destination: internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc/{{ .Entity | lower }}uctest/contract.go
+    post_commands:
+      - add_usecase_mock
+    hint: |
+      Usecase interfaces for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc/{{ .Entity | lower }}uc.go               — {{ .Entity }}Commands + {{ .Entity }}Queries interfaces (package {{ .Entity | lower }}uc)
+        internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc/{{ .Entity | lower }}uctest/contract.go — shared contract suite (run against the app service)
+        internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc/{{ .Entity | lower }}uctest/mock.go      — Mock{{ .Entity }}Commands + Mock{{ .Entity }}Queries (auto-generated)
+
+      The mock is auto-generated via post_command — no manual step needed on first run.
+
+      TESTS FOR THIS LAYER:
+        contract.go defines shared behavioural tests for the usecase interface. The app service
+        satisfies the interface — its contract test runs this suite.
+        HTTP handlers use the mocks (Mock{{ .Entity }}Commands, Mock{{ .Entity }}Queries) to test
+        in isolation without a running app service.
+        When you add or rename a method on the interface:
+          1. Update contract.go to cover the new/renamed method
+          2. Regenerate mocks + unit test stubs:
+             scaffor execute go-hexagonal add_usecase_mock --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+             scaffor execute go-hexagonal add_app_unit_test --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+
+      NEXT STEPS:
+        1. Rename methods to reflect ubiquitous language (e.g. PlaceOrder instead of CreateOrder)
+           then regenerate mock + unit tests (commands above)
+        2. Add test cases to {{ .Entity | lower }}uctest/contract.go for each method
+        3. Add the app service implementation:
+           scaffor execute go-hexagonal add_app_service --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+
+      Typical next steps:
+        - add_app_service        — implement Commands and Queries on App
+        - add_http_handler       — expose HTTP routes wired to the interface
+        - add_app_unit_test      — test app methods with mocked dependencies
+
+  - command: add_usecase_mock
+    description: Add function-based mocks for usecase interfaces (Commands + Queries)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/domain/usecases/entity/entitytest/mock.go.tmpl
+        destination: internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc/{{ .Entity | lower }}uctest/mock.go
+        on_conflict: force
+    shell_commands:
+      - command: "go-surgeon mock {{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc.{{ .Entity }}Commands --mock-name Mock{{ .Entity }}Commands --file internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc/{{ .Entity | lower }}uctest/mock.go"
+      - command: "go-surgeon mock {{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc.{{ .Entity }}Queries --mock-name Mock{{ .Entity }}Queries --file internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc/{{ .Entity | lower }}uctest/mock.go"
+    hint: |
+      Mocks for {{ .Entity }}Commands and {{ .Entity }}Queries added and generated via go-surgeon.
+
+      Created:
+        internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc/{{ .Entity | lower }}uctest/mock.go
+
+      Re-run after any interface change (rename, add, remove methods):
+        scaffor execute go-hexagonal add_usecase_mock --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+
+  # ──────────────────────────────────────────────
+  # APP LAYER — service implementation
+  # ──────────────────────────────────────────────
+  - command: add_app_service
+    description: Add an app service implementation for an entity
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+      - key: Adapter
+        description: Adapter technology name (e.g. pg, redis, mongo). Used to auto-wire the entity.
+        default: "pg"
+    files:
+      - source: internal/context/app/entity.go.tmpl
+        destination: internal/{{ .Context }}/app/{{ .Entity | lower }}.go
+    shell_commands:
+      - command: >-
+          echo 'func (a *App) Set{{ .Entity }}Repo(repo {{ .Entity | lower }}repo.{{ .Entity }}Repository) { a.{{ .Entity | lower }}Repo = repo }'
+          | go-surgeon add-func --file internal/{{ .Context }}/app/{{ .Entity | lower }}.go
+    post_commands:
+      - add_wire
+    hint: |
+      App service for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/app/{{ .Entity | lower }}.go — service method stubs + Set{{ .Entity }}Repo setter
+
+      Auto-wired (via add_wire post_command):
+        internal/{{ .Context }}/wire_{{ .Entity | lower }}.go — registers wire{{ .Entity }}() via init()
+
+      REMAINING MANUAL STEP:
+        Add the repo field to the App struct in app/config.go:
+          {{ .Entity | lower }}Repo {{ .Entity | lower }}repo.{{ .Entity }}Repository
+
+      TESTS FOR THIS LAYER — two tiers:
+        Unit tests (internal/{{ .Context }}/app/{{ .Entity | lower }}_test.go):
+          Use Mock{{ .Entity }}Repository and Mock{{ .Entity }}Publisher. Fast, no infra.
+          Auto-generated by add_app_unit_test. Covers Create, Update, GetByID, List, Delete.
+          For custom action methods (PlaceOrder, PayOrder, …) generate manually:
+            go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.PlaceOrder
+        Contract tests (internal/{{ .Context }}/app/{{ .Entity | lower }}_contract_test.go):
+          Use real repos via testcontainers. Delegates to {{ .Entity | lower }}uctest.{{ .Entity }}CommandsContractTesting.
+          Auto-generated by add_app_service_contract_test.
+        When you add a method to the app service, generate its unit test stub:
+          go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.<MethodName>
+
+      NEXT STEPS:
+        1. Add field above to App struct in config.go (one-time per entity)
+        2. Implement Create{{ .Entity }}, Get{{ .Entity }}ByID, List{{ .Entity }}s, Delete{{ .Entity }} methods
+        3. Rename methods to reflect ubiquitous language (e.g. PlaceOrder, PayOrder)
+        4. For each renamed/added method regenerate its unit test stub (command above)
+
+      Typical next steps:
+        - add_wire         — register this entity in the composition root
+                             (this is what actually connects the app to HTTP routes)
+        - add_http_handler — expose this entity via HTTP (CRUD routes + converter)
+        - add_app_unit_test — cover critical app methods
+
+  - command: add_app_service_contract_test
+    description: Add a contract test for the app service against real infrastructure
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files: []
+    shell_commands:
+      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.Create{{ .Entity }}"
+    hint: |
+      App service contract test for {{ .Entity }} generated by go-surgeon.
+
+      Generated file: internal/{{ .Context }}/app/{{ .Entity | lower }}_contract_test.go
+
+      This test runs with a real backend via testcontainers and delegates to
+      {{ .Entity | lower }}uctest.{{ .Entity }}CommandsContractTesting(t, svc, actor).
+      DO NOT rewrite or simplify the generated test — fill in the TODO test cases only.
+
+      COVERAGE RULE: every public method on App that handles {{ .Entity }} must have a contract
+      test. The scaffold only generates a stub for Create{{ .Entity }} — generate stubs for all
+      remaining methods and keep coverage complete as new methods are added:
+        go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.<MethodName>
+
+  - command: add_app_unit_test
+    description: Add unit tests for the app service layer using mocks
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files: []
+    shell_commands:
+      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.Create{{ .Entity }}"
+      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.Update{{ .Entity }}"
+      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.Get{{ .Entity }}ByID"
+      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.List{{ .Entity }}s"
+      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.Delete{{ .Entity }}"
+    hint: |
+      App service unit tests for {{ .Entity }} generated by go-surgeon.
+
+      Generated file: internal/{{ .Context }}/app/{{ .Entity | lower }}_test.go
+
+      These are white-box unit tests using Mock{{ .Entity }}Repository (and Mock{{ .Entity }}Publisher
+      if the entity has a publisher). No infrastructure required.
+      DO NOT rewrite or simplify the generated tests — fill in the TODO test cases only.
+
+      Stubs generated: Create{{ .Entity }}, Update{{ .Entity }}, Get{{ .Entity }}ByID, List{{ .Entity }}s, Delete{{ .Entity }}.
+      For custom action methods (e.g. PlaceOrder, PayOrder) generate manually:
+        go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.<ActionMethod>
+
+      WARNING: go-surgeon test APPENDS to existing test files — it does not replace them.
+      If you rename methods (e.g. CreateOrder → PlaceOrder) and re-run this command,
+      stale stubs for the old names will accumulate and break the build.
+      Before re-running after a rename, delete the old test file first:
+        rm internal/{{ .Context }}/app/{{ .Entity | lower }}_test.go
+        scaffor execute go-hexagonal add_app_unit_test --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+
+  # ──────────────────────────────────────────────
+  # WIRING — per-entity composition root registration
+  # ──────────────────────────────────────────────
+  - command: add_wire
+    description: Add a wire file that registers entity adapters in the composition root
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+      - key: Adapter
+        description: Adapter technology name (e.g. pg)
+    files:
+      - source: internal/context/wire_entity.go.tmpl
+        destination: internal/{{ .Context }}/wire_{{ .Entity | lower }}.go
+    hint: |
+      Wire file for {{ .Entity }} added to {{ .Context }}.
+
+      Created:
+        internal/{{ .Context }}/wire_{{ .Entity | lower }}.go — registers wire{{ .Entity }}() via init()
+
+      How it works:
+        wire_{{ .Entity | lower }}.go registers a WireFunc via init(). During Setup(),
+        all registered WireFuncs run automatically — no manual edits to init.go needed.
+        The wire function creates outbound adapters (repos, publishers), injects them
+        into the App via setters, AND registers inbound HTTP/gRPC routes. Handlers receive
+        usecase interfaces ({{ .Entity }}Commands, {{ .Entity }}Queries), not *app.App.
+
+      The Set{{ .Entity }}Repo setter and field wiring are handled by add_app_service.
+
+  #──────────────────────────────────────────────
+  # INBOUND LAYER — commands, queries, converters
+  # ──────────────────────────────────────────────
+  - command: add_http_commands
+    description: Add HTTP command handlers (write operations) for an entity
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+      - key: EntityHasActions
+        description: "true if entity uses action routes (pay, cancel, etc.) instead of PUT/DELETE — suppresses update/delete handler generation"
+        default: "false"
+    files:
+      - source: internal/context/inbound/http/commands/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go
+    hint: |
+      HTTP commands for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go — Create, Update, Delete handlers
+
+      TESTS FOR THIS LAYER:
+        HTTP command handlers are tested at the e2e level (tests/e2e-api/{{ .Entity | lower }}_test.go).
+        They receive Mock{{ .Entity }}Commands so they never hit real infrastructure.
+        Cover per handler: happy path, validation errors (400), not-found (404), auth errors (403).
+        Generate stubs after implementing the handlers:
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i create{{ .Entity }}Handler
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i update{{ .Entity }}Handler
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i delete{{ .Entity }}Handler
+
+      NEXT STEPS:
+        1. Implement command handler methods (h.svc.Create{{ .Entity }}, etc.)
+           The update handler pattern: GetEntityByID → apply patch → UpdateEntity (both via h.svc)
+        2. Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration needed
+        3. Write handler tests using the stubs above
+
+      NOTE: action routes added via add_http_action are auto-registered via init() —
+      no manual wiring needed in wire_{{ .Entity | lower }}.go.
+
+  - command: add_http_queries
+    description: Add HTTP query handlers (read operations) for an entity
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/inbound/http/queries/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go
+    hint: |
+      HTTP queries for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go — GetByID, List handlers
+
+      TESTS FOR THIS LAYER:
+        HTTP query handlers are tested at the e2e level (tests/e2e-api/{{ .Entity | lower }}_test.go).
+        They receive Mock{{ .Entity }}Queries so they never hit real infrastructure.
+        Cover per handler: happy path, not-found (404), empty list returns [] not null, cursor pagination.
+        Generate stubs after implementing the handlers:
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go -i get{{ .Entity }}ByIDHandler
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go -i list{{ .Entity }}sHandler
+
+      NEXT STEPS:
+        1. Implement query handler methods (h.queries.Get{{ .Entity }}ByID, h.queries.List{{ .Entity }}s)
+        2. Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration needed
+        3. Write handler tests using the stubs above
+
+  - command: add_http_converter
+    description: Add inbound converters between public API types and domain types
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/inbound/http/converters/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go
+    post_commands:
+      - add_http_converter_test
+    hint: |
+      Converters for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go — domain <-> public type converters
+
+      TESTS FOR THIS LAYER:
+        Converter tests are auto-generated by the add_http_converter_test post_command.
+        Generated file: internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}_test.go
+        Covers: ToPublic{{ .Entity }}, ToPublic{{ .Entity }}List, To{{ .Entity }}Domain.
+        When you add a new converter function, generate its test stub:
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go -i <FunctionName>
+
+  - command: add_http_converter_test
+    description: Add tests for inbound converters
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files: []
+    shell_commands:
+      - command: "go-surgeon test -f internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go -i ToPublic{{ .Entity }}"
+      - command: "go-surgeon test -f internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go -i ToPublic{{ .Entity }}List"
+      - command: "go-surgeon test -f internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go -i To{{ .Entity }}Domain"
+    hint: |
+      Converter tests for {{ .Entity }} generated by go-surgeon.
+
+      Generated file: internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}_test.go
+
+      Stubs generated: ToPublic{{ .Entity }}, ToPublic{{ .Entity }}List, To{{ .Entity }}Domain.
+      DO NOT rewrite or simplify the generated tests — fill in the TODO test cases only.
+      These are pure unit tests — no mocks or infrastructure needed.
+      Each test should cover: field mapping correctness, zero values, boundary values.
+
+  - command: add_http_handler
+    description: Add both HTTP command and query handlers for an entity with converters
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files: []
+    post_commands:
+      - add_http_commands
+      - add_http_queries
+      - add_http_converter
+    hint: |
+      Full HTTP handler for {{ .Entity }} added (commands + queries + converters).
+
+  - command: add_http_action
+    description: Add an HTTP action endpoint (non-CRUD state transition, e.g. pay, cancel, fulfill)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase (e.g. Order)
+      - key: Action
+        description: Action name in PascalCase (e.g. Pay, Cancel, Fulfill)
+    files:
+      - source: internal/context/inbound/http/commands/entity_action.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}_{{ .Action | lower }}.go
+    hint: |
+      HTTP action endpoint {{ .Action }} for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}_{{ .Action | lower }}.go
+
+      Route: POST /api/v1/projects/{projectID}/{{ .Entity | lower }}s/{id}/{{ .Action | lower }}
+
+      TESTS FOR THIS LAYER:
+        Three test files to update when you add this action:
+          1. App unit test — add a stub for the new app service method:
+               go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.{{ .Action }}{{ .Entity }}
+          2. HTTP handler test — add a stub for the action handler:
+               go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}_{{ .Action | lower }}.go -i {{ .Action | lower }}{{ .Entity }}Handler
+          3. E2E test — add a scenario to tests/e2e-api/{{ .Entity | lower }}_test.go covering
+               the full action lifecycle (e.g. place order → pay → assert status=paid)
+        Also add {{ .Action }}{{ .Entity }} to the Mock{{ .Entity }}Commands after updating the interface:
+          scaffor execute go-hexagonal add_usecase_mock --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+
+      NEXT STEPS:
+        1. Add {{ .Action }}{{ .Entity }}(ctx, actor, id) to {{ .Entity }}Commands interface
+        2. Implement in the app service
+        3. Generate test stubs (commands above)
+
+      The route is auto-registered via init() in the generated file — Setup{{ .Entity }}Routes
+      picks it up automatically, no changes to wire_{{ .Entity | lower }}.go needed.
+
+      NOTE: each action creates a separate file. For entities with many actions (pay,
+      cancel, fulfill, refund), consider consolidating into a single {{ .Entity | lower }}_actions.go
+      by moving the generated handlers there and deleting the per-action files.
+
+  - command: add_grpc_commands
+    description: Add gRPC command handlers (write operations) for an entity
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/inbound/grpc/commands/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/commands/{{ .Entity | lower }}.go
+    hint: |
+      gRPC commands for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/inbound/grpc/commands/{{ .Entity | lower }}.go — gRPC write operation stubs
+
+      NEXT STEPS:
+        1. Define command RPCs in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
+        2. Run protoc to generate Go code into pkg/{{ .Context }}/grpc/
+        3. Implement command methods (h.commands.Create{{ .Entity }}, etc.)
+        4. Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration needed
+
+  - command: add_grpc_queries
+    description: Add gRPC query handlers (read operations) for an entity
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/inbound/grpc/queries/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/queries/{{ .Entity | lower }}.go
+    hint: |
+      gRPC queries for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/inbound/grpc/queries/{{ .Entity | lower }}.go — gRPC read operation stubs
+
+      NEXT STEPS:
+        1. Define query RPCs in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
+        2. Run protoc to generate Go code into pkg/{{ .Context }}/grpc/
+        3. Implement query methods (h.queries.Get{{ .Entity }}ByID, etc.)
+        4. Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration needed
+
+  - command: add_grpc_converter
+    description: Add gRPC converters between proto types and domain types
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/inbound/grpc/converters/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/converters/{{ .Entity | lower }}.go
+    hint: |
+      gRPC converters for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/inbound/grpc/converters/{{ .Entity | lower }}.go — proto <-> domain converters
+
+  - command: add_grpc_handler
+    description: Add both gRPC command and query handlers for an entity with converters
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files: []
+    post_commands:
+      - add_grpc_commands
+      - add_grpc_queries
+      - add_grpc_converter
+    hint: |
+      Full gRPC handler for {{ .Entity }} added (commands + queries + converters).
+
+  - command: add_grpc_proto
+    description: Add a proto file for a bounded context
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+    files:
+      - source: pkg/context/grpc/proto/context.proto.tmpl
+        destination: pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
+    hint: |
+      Proto file for {{ .Context }} added.
+
+      Created:
+        pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto — proto definitions (generated Go code goes to pkg/{{ .Context }}/grpc/)
+
+      NEXT STEP — generate Go code:
+        protoc --go_out=. --go-grpc_out=. pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
+
+  # ──────────────────────────────────────────────
+  # DOMAIN SERVICES — pure domain logic (no I/O)
+  # ──────────────────────────────────────────────
+  - command: add_domain_service
+    description: Add a pure domain service (business rules, calculations, policies — no I/O)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: Name
+        description: Service name in PascalCase (e.g. Pricing, Eligibility)
+    files:
+      - source: internal/context/domain/services/name.go.tmpl
+        destination: internal/{{ .Context }}/domain/services/{{ .Name | lower }}.go
+    hint: |
+      Domain service {{ .Name }} added.
+
+      Created:
+        internal/{{ .Context }}/domain/services/{{ .Name | lower }}.go — pure domain logic, no I/O
+
+      CONVENTION:
+        Domain services contain pure validation/policy functions (e.g. CanTransition, ValidateStock).
+        State mutations belong on entity methods (e.g. order.MarkPaid()), not in the service.
+        The app service calls the domain service to validate, then calls the entity method to mutate.
+
+      TESTS FOR THIS LAYER:
+        Domain services are pure functions — unit test them directly, no mocks needed.
+        Test file: internal/{{ .Context }}/domain/services/{{ .Name | lower }}_test.go
+        Generate stubs for each exported function:
+          go-surgeon test -f internal/{{ .Context }}/domain/services/{{ .Name | lower }}.go -i <FunctionName>
+        Cover: valid inputs, every error branch, boundary conditions.
+
+  # ──────────────────────────────────────────────
+  # PUBLISHER / CONSUMER — event ports and adapters
+  # ──────────────────────────────────────────────
+  - command: add_publisher_interface
+    description: Add a publisher port interface (outbound) for an entity
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+      - key: Events
+        description: "Comma-separated event suffixes (e.g. Added,StockChanged). If omitted, defaults to Created,Deleted. Each becomes a Publish{Entity}{Suffix} method."
+        optional: true
+    files:
+      - source: internal/context/domain/publishers/entity/entity.go.tmpl
+        destination: internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub/{{ .Entity | lower }}pub.go
+    post_commands:
+      - add_publisher_mock
+    hint: |
+      Publisher interface for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub/{{ .Entity | lower }}pub.go — outbound port for {{ .Entity }} events
+
+      WARNING — DUAL-WRITE RISK:
+        Calling repo.Create() then publisher.Publish() is NOT atomic.
+        If the broker fails after DB commit, the event is lost.
+        For exactly-once semantics, implement the outbox pattern:
+        write events to an outbox table inside the same DB transaction (UoW),
+        then relay them to the broker via a separate poller/consumer.
+
+  - command: add_publisher_mock
+    description: Add a function-based mock for a publisher interface
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+      - key: Events
+        description: "Comma-separated event suffixes (must match add_publisher_interface). Optional."
+        optional: true
+    files:
+      - source: internal/context/domain/publishers/entity/entitytest/mock.go.tmpl
+        destination: internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub/{{ .Entity | lower }}pubtest/mock.go
+        on_conflict: force
+    shell_commands:
+      - command: "go-surgeon mock {{ .ModulePath }}/internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub.{{ .Entity }}Publisher --mock-name Mock{{ .Entity }}Publisher --file internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub/{{ .Entity | lower }}pubtest/mock.go"
+    hint: |
+      Mock for {{ .Entity }}Publisher added and generated via go-surgeon.
+
+      Created:
+        internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub/{{ .Entity | lower }}pubtest/mock.go
+
+      Re-run after any interface change:
+        scaffor execute go-hexagonal add_publisher_mock --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+
+  - command: add_publisher_adapter
+    description: Add a concrete publisher adapter implementation (outbound)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+      - key: Adapter
+        description: Adapter technology name (e.g. kafka, sqs, nats)
+      - key: Events
+        description: "Comma-separated event suffixes (must match add_publisher_interface). Optional."
+        optional: true
+    files:
+      - source: internal/context/outbound/adapter/backend.go.tmpl
+        destination: internal/{{ .Context }}/outbound/{{ .Adapter }}/backend.go
+        on_conflict: skip
+      - source: internal/context/outbound/adapter/publisher_entity.go.tmpl
+        destination: internal/{{ .Context }}/outbound/{{ .Adapter }}/publisher_{{ .Entity | lower }}.go
+    shell_commands:
+      - command: >-
+          echo 'func (a *App) Set{{ .Entity }}Publisher(p {{ .Entity | lower }}pub.{{ .Entity }}Publisher) { a.{{ .Entity | lower }}Publisher = p }'
+          | go-surgeon add-func --file internal/{{ .Context }}/app/{{ .Entity | lower }}.go
+      - command: >-
+          go-surgeon insert-call
+          --file internal/{{ .Context }}/wire_{{ .Entity | lower }}.go
+          --id wire{{ .Entity }}
+          --call "{{ .Entity | lower }}Publisher := {{ .Adapter }}adapter.New{{ .Entity }}Publisher(deps.Backends.{{ .Adapter | title }}); a.Set{{ .Entity }}Publisher({{ .Entity | lower }}Publisher)"
+          --position "after:Set{{ .Entity }}Repo"
+    hint: |
+      {{ .Entity }} publisher adapter ({{ .Adapter }}) added.
+
+      Created:
+        internal/{{ .Context }}/outbound/{{ .Adapter }}/backend.go               — shared Backend interface (skipped if already exists)
+        internal/{{ .Context }}/outbound/{{ .Adapter }}/publisher_{{ .Entity | lower }}.go — publisher stub implementing {{ .Entity }}Publisher
+
+      Auto-wired:
+        Set{{ .Entity }}Publisher setter added to app/{{ .Entity | lower }}.go
+        Publisher creation + injection inserted in wire_{{ .Entity | lower }}.go
+
+      REMAINING MANUAL STEP:
+        Add the publisher field to the App struct in app/config.go:
+          {{ .Entity | lower }}Publisher {{ .Entity | lower }}pub.{{ .Entity }}Publisher
+
+      The events/ directory is broker-agnostic. The broker (NATS, RabbitMQ, Kafka, SQS)
+      is chosen when implementing the Backend interface in backend.go — see the
+      examples in that file's TODO.
+
+  - command: add_consumer_handler
+    description: Add an inbound consumer handler for cross-context or local events
+    variables:
+      - key: Context
+        description: Bounded context name (the LOCAL context that consumes the event)
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase (e.g. Account for AccountDeleted events)
+      - key: SourceContext
+        description: Bounded context that emits the event (may differ from Context for cross-context events, e.g. "accounts" when consuming AccountDeleted in catalog)
+      - key: Event
+        description: |
+          Full event name in PascalCase (e.g. AccountDeleted). Used to reference the exact
+          event type created by add_consumed_event (e.g. AccountDeletedEvent).
+          Must match the Event variable passed to add_consumed_event.
+          If omitted, falls back to {{ .Entity }}Event — likely wrong for named events.
+        optional: true
+    files:
+      - source: internal/context/inbound/events/consumers/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/events/consumers/{{ .Entity | lower }}.go
+      - source: internal/context/wire_consumer.go.tmpl
+        destination: internal/{{ .Context }}/wire_{{ .Entity | lower }}_consumer.go
+    hint: |
+      {{ .Entity }} consumer handler added.
+
+      Created:
+        internal/{{ .Context }}/inbound/events/consumers/{{ .Entity | lower }}.go
+        internal/{{ .Context }}/wire_{{ .Entity | lower }}_consumer.go — registers the consumer via RegisterConsumer in init()
+
+      This consumer handles events from the {{ .SourceContext }} bounded context.
+      It imports event types from pkg/{{ .SourceContext }}/events/v1/ and acts on the
+      LOCAL {{ .Context }} context via local usecase interfaces (not {{ .SourceContext }} usecases).
+      Wire from the composition root:
+        consumer := consumers.New{{ .Entity }}Consumer(localCmds)
+
+      IMPORTANT: for cross-context consumers (SourceContext != Context), the consumer
+      must NOT import usecases from the source context. It should depend on LOCAL
+      usecase interfaces and translate the foreign event into local domain operations.
+
+      The events/ directory is broker-agnostic. The broker (NATS, RabbitMQ, Kafka, SQS)
+      is chosen when implementing the Backend interface in backend.go — see the
+      examples in that file's TODO.
+
+      This command created TWO files:
+        - the consumer handler (inbound/events/consumers/<entity>.go)
+        - its wire file (wire_<entity>_consumer.go) that auto-registers via init()
+
+      The wire file hooks the consumer into Setup() lifecycle — no manual wiring
+      in init.go is needed. Fill in the TODO(scaffolding) markers in the wire
+      file to connect the consumer to your broker of choice.
+
+  # ──────────────────────────────────────────────
+  # PUBLIC TYPES — API contracts
+  # ──────────────────────────────────────────────
+  - command: add_public_types
+    description: Add public request/response types for an entity
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: pkg/context/http/v1/entity.go.tmpl
+        destination: pkg/{{ .Context }}/http/v1/{{ .Entity | lower }}.go
+    hint: |
+      Public types for {{ .Entity }} added.
+
+      Created:
+        pkg/{{ .Context }}/http/v1/{{ .Entity | lower }}.go — CreateRequest, UpdateRequest, Response, ListResponse structs
+
+      NEXT STEPS:
+        1. Customize request/response fields to match your API design
+        2. Add converters:
+           scaffor execute go-hexagonal add_http_converter --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+
+  - command: add_consumed_event
+    description: Add a consumed event type (events this context receives)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: Event
+        description: Event name in PascalCase (e.g. ProjectCreated)
+      - key: SourceContext
+        description: |
+          Bounded context that emits this event. When set, the event type is created in
+          pkg/{SourceContext}/events/v1 instead of pkg/{Context}/events/v1.
+          Use this for cross-context events (e.g. AccountDeleted from the accounts context).
+          Omit when consuming an event emitted by the same context.
+        optional: true
+    files:
+      - source: pkg/context/events/v1/consumed_event.go.tmpl
+        destination: "pkg/{{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}/events/v1/{{ .Event | lower }}_consumed.go"
+    hint: |
+      Consumed event {{ .Event }} added.
+
+      Created:
+        pkg/{{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}/events/v1/{{ .Event | lower }}_consumed.go — {{ .Event }}Event struct
+
+      NOTE: event type lives in pkg/{{ if .SourceContext }}{{ .SourceContext }} (source context){{ else }}{{ .Context }}{{ end }}/events/v1.
+      Consumers in this context import from that path.
+
+      NEXT STEPS:
+        1. Define the event fields
+        2. Create an inbound queue consumer to handle this event:
+           scaffor execute go-hexagonal add_consumer_handler --set Context={{ .Context }} --set Entity=... --set Event={{ .Event }} --set SourceContext={{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}
+
+      Typical next step:
+        - add_consumer_handler — REQUIRED to actually receive and process this event.
+          This command creates both the handler and its automatic boot-time wiring.
+          Without it, the event type is declared but no consumer reads messages.
+
+  - command: add_emitted_event
+    description: Add an emitted event type (events this context publishes)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: Event
+        description: Event name in PascalCase (e.g. NotificationSent)
+    files:
+      - source: pkg/context/events/v1/emitted_event.go.tmpl
+        destination: pkg/{{ .Context }}/events/v1/{{ .Event | lower }}_emitted.go
+    hint: |
+      Emitted event {{ .Event }} added to {{ .Context }}.
+
+      Created:
+        pkg/{{ .Context }}/events/v1/{{ .Event | lower }}_emitted.go — {{ .Event }}Event struct
+
+      NEXT STEPS:
+        1. Define the event fields
+        2. Publish this event from the app service or outbound adapter
+
+      Typical next step:
+        - add_publisher_adapter — create the publisher that emits this event,
+          wired to a message broker (NATS, RabbitMQ, Kafka, SQS).
+
+  # ──────────────────────────────────────────────
+  # MIGRATIONS
+  # ──────────────────────────────────────────────
+  - command: add_migration
+    description: Add a numbered SQL migration file pair (up + down)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: Adapter
+        description: Adapter technology name (e.g. pg)
+      - key: MigrationNumber
+        description: Migration number with leading zeros (e.g. 001, 002)
+      - key: MigrationSlug
+        description: Migration description slug (e.g. create_projects, add_notification_table)
+    files:
+      - source: internal/context/outbound/adapter/migrations/migration.up.sql.tmpl
+        destination: internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations/{{ .MigrationNumber }}_{{ .MigrationSlug }}.up.sql
+      - source: internal/context/outbound/adapter/migrations/migration.down.sql.tmpl
+        destination: internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations/{{ .MigrationNumber }}_{{ .MigrationSlug }}.down.sql
+    hint: |
+      Migration {{ .MigrationNumber }}_{{ .MigrationSlug }} added.
+
+      Created:
+        internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations/{{ .MigrationNumber }}_{{ .MigrationSlug }}.up.sql
+        internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations/{{ .MigrationNumber }}_{{ .MigrationSlug }}.down.sql
+
+      NEXT STEPS:
+        1. Write the CREATE/ALTER statements in the .up.sql file
+        2. Write the corresponding DROP/REVERT in the .down.sql file
+        3. Remember: all DDL must be idempotent (IF NOT EXISTS)
+
+  # ──────────────────────────────────────────────
+  # E2E TESTS
+  # ──────────────────────────────────────────────
+  - command: add_e2e_test
+    description: Add an e2e API test file for an entity
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: tests/e2e-api/entity_test.go.tmpl
+        destination: tests/e2e-api/{{ .Entity | lower }}_test.go
+    hint: |
+      E2E test placeholder for {{ .Entity }} added.
+
+      Created:
+        tests/e2e-api/{{ .Entity | lower }}_test.go
+
+      TESTS FOR THIS LAYER:
+        E2E tests hit real HTTP endpoints against a fully wired stack (testcontainers).
+        Use the doGet/doPost/doPut/doDelete helpers from setup_test.go.
+        Implement handlers before writing these tests.
+
+        Required scenarios — implement all of these:
+          - Full CRUD lifecycle (create → get → update → delete)
+          - IDOR: access entity belonging to scope B from scope A's token → 404
+          - Validation errors: missing required fields, invalid IDs → 400 with structured JSON
+          - List: empty result returns {"items":[],"next_cursor":""} not null
+          - List: pagination cursor advances correctly across pages
+          - Action endpoints (if any): full state-machine lifecycle (e.g. place → pay → fulfill)
+
+        Generate stubs for each handler after implementing them:
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i create{{ .Entity }}Handler
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go -i get{{ .Entity }}ByIDHandler
+
+  # ──────────────────────────────────────────────
+  # ADDITIONAL BINARIES
+  # ──────────────────────────────────────────────
+  - command: add_cmd
+    description: Add an additional binary entry point (worker, migrator, etc.)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Binary
+        description: Binary name (e.g. worker, migrator, consumer)
+    files:
+      - source: cmd/binary/main.go.tmpl
+        destination: cmd/{{ .Binary }}/main.go
+    hint: |
+      Binary {{ .Binary }} added.
+
+      Created:
+        cmd/{{ .Binary }}/main.go — entry point reusing {{ .Context }} bounded context
+
+      This binary has no HTTP/gRPC server — it's an empty entry point for you to wire.
+      NEXT STEPS:
+        1. Wire dependencies from internal/{{ .Context }}/ as needed
+        2. Build: go build ./cmd/{{ .Binary }}
+
+  # ──────────────────────────────────────────────
+  # COMPOSITE — full entity scaffold across all layers
+  # ──────────────────────────────────────────────
+  - command: add_entity
+    description: Scaffold a complete entity across all hexagonal layers (domain, repo, service, app, handler, types, tests)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+      - key: Adapter
+        description: Adapter technology name (e.g. pg, redis, mongo)
+    files: []
+    post_commands:
+      - add_domain_entity
+      - add_repository_interface
+      - add_usecase_interface
+      - add_app_service
+      - add_app_unit_test
+      - add_app_service_contract_test
+      - add_public_types
+      - add_http_handler
+      - add_e2e_test
+      - add_repository_adapter
+    hint: |
+      Full entity {{ .Entity }} scaffolded across all layers of {{ .Context }}.
+
+      WIRING (already done):
+        internal/{{ .Context }}/wire_{{ .Entity | lower }}.go registers the entity's adapters
+        AND inbound HTTP routes via init() — Setup() picks them up automatically.
+        No edits to init.go needed. Handlers receive usecase interfaces, not *app.App.
+
+      NEXT STEPS:
+        1. Add the {{ .Entity | lower }}Repo field to the App struct in app/config.go
+        2. Define {{ .Entity }} fields in domain/{{ .Entity | lower }}.go
+        3. Customize repository and service interface methods
+        4. Adjust SQL columns in the repository adapter to match your entity fields
+        5. Implement the app service business logic
+        6. Implement the HTTP handler and converters
+        7. Write failing tests (red phase), then implement (green phase)
+
+      IF YOU USE UnitOfWork:
+        UoW is per-context, not per-entity — add_entity does NOT scaffold it.
+        If a UoW already exists, wire the new entity's repo accessor into pgRepositories:
+          go-surgeon create --object func --file internal/{{ .Context }}/outbound/{{ .Adapter }}/uow.go \
+            -i pgRepositories.{{ .Entity }}s \
+            --content 'func (r *pgRepositories) {{ .Entity }}s() {{ .Entity | lower }}.{{ .Entity }}Repository { return New{{ .Entity }}RepositoryTx(r.tx) }'
+        Also add the method to the domain Repositories interface in domain/uow/uow.go.
+
+shell_commands:
+  - command: "goimports -w {{ .Files }}"
+    pattern: "*.go"

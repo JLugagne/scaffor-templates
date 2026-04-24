@@ -1,0 +1,92 @@
+# {{ .AppName }}
+
+## Scaffolding workflow
+
+This project was created by `scaffor execute go-hexagonal bootstrap`. The
+next steps should use scaffor incremental commands, not manual coding.
+
+**Required for any coding agent working on this project:**
+Before writing Go code with Write/Edit tools, check `scaffor list` and
+`scaffor doc <command>` to see if an incremental command covers what you
+need. Manual coding is only appropriate for business logic inside generated
+scaffolds, never as a replacement for the scaffolding itself.
+
+Typical sequence for a new entity `Foo`:
+
+```bash
+scaffor execute go-hexagonal add_domain_entity       --set Entity=Foo ...
+scaffor execute go-hexagonal add_repository_interface --set Entity=Foo ...
+scaffor execute go-hexagonal add_repository_adapter  --set Entity=Foo ...
+scaffor execute go-hexagonal add_usecase_interface   --set Entity=Foo ...
+scaffor execute go-hexagonal add_app_service         --set Entity=Foo ...
+scaffor execute go-hexagonal add_wire                --set Entity=Foo ...
+scaffor execute go-hexagonal add_http_handler        --set Entity=Foo ...
+scaffor execute go-hexagonal add_app_unit_test       --set Entity=Foo ...
+```
+
+For cross-context event consumption, `add_consumer_handler` is mandatory —
+it generates both the handler and its boot-time wiring in one step.
+
+## Architecture
+
+This project follows hexagonal architecture. See `.go-arch-lint.yml` for layer dependency rules.
+
+```
+cmd/{{ .Context }}/                    — entry point (composition root)
+internal/{{ .Context }}/
+  config/                              — configuration loading
+  domain/                              — entities, value objects, errors
+    usecases/{entity}/                 — inbound port interfaces (Commands + Queries)
+    repositories/{entity}/             — outbound port interfaces (persistence)
+    publishers/{entity}/               — outbound port interfaces (events)
+    services/                          — pure domain logic (no I/O)
+  app/                                 — orchestration (implements usecases)
+  inbound/
+    http/{commands,queries,shared}/    — HTTP handlers
+    grpc/{commands,queries}/           — gRPC handlers
+    {protocol}/consumers/              — message queue consumers
+  outbound/{adapter}/                  — concrete adapter implementations
+pkg/{{ .Context }}/
+  http/v1/                             — public HTTP types (requests, responses)
+  events/v1/                           — public event types (consumed, emitted)
+  grpc/                                — gRPC generated types + proto definitions
+tests/e2e-api/                         — end-to-end tests
+```
+
+### Layer rules
+
+| Layer | Can import |
+|-------|-----------|
+| `domain/` | nothing |
+| `app/` | `domain/` |
+| `inbound/` | `domain/`, `pkg/` |
+| `outbound/` | `domain/` |
+| `config/` | nothing |
+| `init.go` (composition) | `domain/`, `app/`, `inbound/`, `outbound/`, `config/` |
+| `cmd/` | `internal/{context}/`, `internal/{context}/config/` only |
+
+### Config injection
+
+Only the composition root (`init.go`) imports `config/`. App and outbound layers
+receive their dependencies as constructor arguments — they never read config directly.
+This keeps layers testable without config fixtures.
+
+## Getting Started
+
+```bash
+go mod tidy
+make build
+make test
+```
+
+## Required Tools
+
+- [go-surgeon](https://github.com/JLugagne/go-surgeon) — AST-based mock and test generation
+- [go-arch-lint](https://github.com/fe3dback/go-arch-lint) — layer dependency enforcement
+- [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) — import formatting
+- [testcontainers-go](https://golang.testcontainers.org/) — integration tests with real infrastructure
+
+## Module Versioning
+
+This project uses Go module versioning. For v2+, update the module path
+in go.mod to include the major version suffix (e.g., `/v2`).

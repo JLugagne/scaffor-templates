@@ -1,0 +1,35 @@
+package queries
+
+import (
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc"
+
+	"google.golang.org/grpc"
+)
+
+type {{ .Entity | lower }}Handler struct {
+	queries {{ .Entity | lower }}uc.{{ .Entity }}Queries
+}
+
+// Setup{{ .Entity }}Services registers gRPC query services for {{ .Entity }}.
+// Called from the composition root (wire_{{ .Entity | lower }}.go).
+func Setup{{ .Entity }}Services(srv *grpc.Server, q {{ .Entity | lower }}uc.{{ .Entity }}Queries) {
+	h := &{{ .Entity | lower }}Handler{queries: q}
+	_ = h
+	// TODO(scaffolding): register the generated gRPC server with `srv` after proto stubs exist.
+	// Required before any gRPC query test passes — without registration, the server rejects
+	// every call with Unimplemented.
+	//   1. Define GetByID/List RPCs in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
+	//   2. Run protoc (see Makefile.tmpl) to generate pkg/{{ .Context }}/grpc/*.pb.go
+	//   3. Uncomment: pb.Register{{ .Entity }}QueriesServer(srv, h)
+}
+
+// TODO(scaffolding): implement one method on *{{ .Entity | lower }}Handler per proto RPC.
+// Required before gRPC query calls return anything other than Unimplemented.
+// Each method must: call ActorFromContext, parse the proto request into domain IDs / ListParams,
+// invoke h.queries.*, map domain errors to gRPC status codes, and return the proto response
+// built via converters.ToProto*.
+//   func (h *{{ .Entity | lower }}Handler) Get{{ .Entity }}ByID(ctx context.Context, req *pb.Get{{ .Entity }}ByIDRequest) (*pb.Get{{ .Entity }}ByIDResponse, error) {
+//       actor, err := grpc.ActorFromContext(ctx); if err != nil { return nil, status.Error(codes.Unauthenticated, err.Error()) }
+//       item, err := h.queries.Get{{ .Entity }}ByID(ctx, actor, domain.{{ .Entity }}ID(req.Id)); if err != nil { return nil, mapDomainErr(err) }
+//       return &pb.Get{{ .Entity }}ByIDResponse{Item: converters.ToProto{{ .Entity }}(item)}, nil
+//   }

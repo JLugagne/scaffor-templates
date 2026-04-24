@@ -1,0 +1,53 @@
+package app
+
+import (
+	"context"
+	"fmt"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo"
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc"
+)
+
+// Convention: if an operation touches more than one repository or emits events
+// alongside writes, wrap it in a.uow.Do(ctx, func(ctx context.Context, repos UoWRepos) error { ... })
+// to keep the state change atomic. Single-repo reads and writes can call the repo directly.
+
+// Compile-time checks — App implements both {{ .Entity }} usecase interfaces.
+var (
+	_ {{ .Entity | lower }}uc.{{ .Entity }}Commands = (*App)(nil)
+	_ {{ .Entity | lower }}uc.{{ .Entity }}Queries  = (*App)(nil)
+)
+
+func (a *App) Create{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error) {
+	if err := a.{{ .Entity | lower }}Repo.Create(ctx, actor.ProjectID(), item); err != nil {
+		return nil, fmt.Errorf("create {{ .Entity | lower }}: %w", err)
+	}
+
+	a.logger.Info("created {{ .Entity | lower }}", "id", item.ID(), "actor", actor.ID())
+	return item, nil
+}
+
+func (a *App) Get{{ .Entity }}ByID(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error) {
+	item, err := a.{{ .Entity | lower }}Repo.FindByID(ctx, actor.ProjectID(), id)
+	if err != nil {
+		return nil, fmt.Errorf("get {{ .Entity | lower }} by id: %w", err)
+	}
+	return item, nil
+}
+
+func (a *App) List{{ .Entity }}s(ctx context.Context, actor *domain.Actor, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error) {
+	result, err := a.{{ .Entity | lower }}Repo.List(ctx, actor.ProjectID(), params)
+	if err != nil {
+		return nil, fmt.Errorf("list {{ .Entity | lower }}s: %w", err)
+	}
+	return result, nil
+}
+
+func (a *App) Delete{{ .Entity }}(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) error {
+	if err := a.{{ .Entity | lower }}Repo.Delete(ctx, actor.ProjectID(), id); err != nil {
+		return fmt.Errorf("delete {{ .Entity | lower }}: %w", err)
+	}
+	a.logger.Info("deleted {{ .Entity | lower }}", "id", id, "actor", actor.ID())
+	return nil
+}

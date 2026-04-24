@@ -1,0 +1,189 @@
+package {{ .Context }}
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"sync"
+	"sync/atomic"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/app"
+	appconfig "{{ .ModulePath }}/internal/{{ .Context }}/config"
+	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/commands"
+	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/queries"
+	inboundhttp "{{ .ModulePath }}/internal/{{ .Context }}/inbound/http"
+)
+
+var tracer = otel.Tracer("{{ .ModulePath }}/internal/{{ .Context }}")
+
+// Backends holds pre-created infrastructure clients.
+// Created by main.go from global config, injected into Setup.
+type Backends struct {
+	Postgres *pgxpool.Pool
+	// TODO(scaffolding): add one field per infrastructure client this context uses
+	// (brokers, caches, search clients, external SDKs). Clients must be created in
+	// cmd/{{ .Context }}/main.go (or equivalent) and injected — never construct them here.
+	// Required before `add_publisher_adapter` and consumers can reference deps.Backends.*
+	// in their wiring; otherwise the generated `wireX` functions fail to compile.
+	//   Kafka *kafka.Writer
+	//   Redis *redis.Client
+}
+
+// WireDeps holds shared dependencies passed to each WireFunc.
+// Created once by Setup(), then passed to every entity wire function.
+type WireDeps struct {
+	Backends       Backends
+	HTTPMux        *mux.Router
+	CmdValidator   *validator.Validate
+	QueryValidator *validator.Validate
+}
+
+// WireFunc wires a single entity's adapters and routes.
+// Each entity has its own wire_entity.go that registers one via init().
+type WireFunc func(ctx context.Context, a *app.App, deps WireDeps)
+
+var wireFuncs []WireFunc
+
+// RegisterWire adds an entity wiring function to the setup sequence.
+// Called from init() in wire_entity.go files — one per entity.
+func RegisterWire(fn WireFunc) {
+	wireFuncs = append(wireFuncs, fn)
+}
+
+// ConsumerFunc creates a consumer instance and returns its lifecycle hooks.
+// start is invoked in a goroutine after Setup completes.
+// stop is called during Shutdown for graceful teardown.
+type ConsumerFunc func(ctx context.Context, a *app.App, deps WireDeps) (
+	start func(context.Context) error,
+	stop func(context.Context) error,
+)
+
+var consumerFuncs []ConsumerFunc
+
+// RegisterConsumer adds a consumer lifecycle function to the setup sequence.
+// Called from init() in wire_<entity>_consumer.go files.
+func RegisterConsumer(fn ConsumerFunc) {
+	consumerFuncs = append(consumerFuncs, fn)
+}
+
+// Context is the {{ .Context }} bounded context.
+// Created with New() (instant, before HTTP starts), then initialized
+// with Setup() (may run migrations, etc.) in a background goroutine.
+// The HTTP handler returns 503 until Setup completes.
+type Context struct {
+	handler  atomic.Value // holds http.Handler once Setup completes
+	stoppers []func(context.Context) error
+	mu       sync.Mutex
+}
+
+// New creates a {{ .Context }} context that is not yet ready.
+// Requests to its handler return 503 until Setup is called.
+func New() *Context {
+	c := &Context{}
+	// Pre-load a 503 handler so ServeHTTP works immediately.
+	c.handler.Store(http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"service not ready"}`, http.StatusServiceUnavailable)
+	})))
+	return c
+}
+
+// ServeHTTP delegates to the current handler (503 before Setup, real routes after).
+func (c *Context) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	c.handler.Load().(http.Handler).ServeHTTP(w, r)
+}
+
+// Setup wires all dependencies for the {{ .Context }} bounded context.
+// The ctx carries the OTel trace — every init step is recorded as a child span.
+// This may take time (migrations, connection warmup, etc.).
+// Call this in a background goroutine after the HTTP server starts.
+//
+// This is the composition root. Entity-specific wiring lives in wire_entity.go
+// files — each one registers a WireFunc via init(). Setup calls them all,
+// passing the App (which implements usecase interfaces) and shared dependencies.
+func (c *Context) Setup(ctx context.Context, cfg *appconfig.Config, backends Backends) error {
+	ctx, span := tracer.Start(ctx, "{{ .Context }}.Setup")
+	defer span.End()
+
+	_ = cfg // use for context-specific business settings
+
+	// Run migrations
+	func() {
+		_, s := tracer.Start(ctx, "{{ .Context }}.Setup.migrations")
+		defer s.End()
+		// TODO(scaffolding): run embedded SQL migrations against backends.Postgres here.
+		// Required before any adapter query succeeds against a fresh database — e2e tests
+		// spin up a clean container and expect this step to create every table.
+		// Typical pattern with golang-migrate + embed.FS:
+		//   import (_ "github.com/golang-migrate/migrate/v4/database/postgres"; "github.com/golang-migrate/migrate/v4")
+		//   m, err := migrate.New("file://internal/{{ .Context }}/outbound/pg/migrations", cfg.Postgres.URL)
+		//   if err != nil { return err }
+		//   if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) { return err }
+	}()
+
+	// App service (implements usecase interfaces)
+	a := app.New(slog.Default())
+
+	// HTTP router + shared middleware
+	router := mux.NewRouter()
+	inboundhttp.SetupRouter(router)
+
+	// Wire all entities — each registers its adapters (repos, publishers)
+	// AND its inbound routes (HTTP handlers receive usecase interfaces, not *app.App).
+	deps := WireDeps{
+		Backends:       backends,
+		HTTPMux:        router,
+		CmdValidator:   commands.NewValidator(),
+		QueryValidator: queries.NewValidator(),
+	}
+	func() {
+		_, s := tracer.Start(ctx, "{{ .Context }}.Setup.wire")
+		defer s.End()
+		for _, fn := range wireFuncs {
+			fn(ctx, a, deps)
+		}
+	}()
+
+	// Start consumers — each runs in its own goroutine.
+	func() {
+		_, s := tracer.Start(ctx, "{{ .Context }}.Setup.consumers")
+		defer s.End()
+		for _, fn := range consumerFuncs {
+			start, stop := fn(ctx, a, deps)
+			c.mu.Lock()
+			c.stoppers = append(c.stoppers, stop)
+			c.mu.Unlock()
+			go func(start func(context.Context) error) {
+				if err := start(ctx); err != nil {
+					slog.ErrorContext(ctx, "consumer failed", "err", err)
+				}
+			}(start)
+		}
+	}()
+
+	// Swap the 503 handler for the real one — all subsequent requests go to mux.
+	c.handler.Store(http.Handler(router))
+
+	slog.InfoContext(ctx, "{{ .Context }} setup complete")
+	return nil
+}
+
+// Shutdown stops all consumers gracefully.
+// Call from main.go on SIGTERM before closing the HTTP server.
+func (c *Context) Shutdown(ctx context.Context) error {
+	c.mu.Lock()
+	stoppers := c.stoppers
+	c.stoppers = nil
+	c.mu.Unlock()
+	var firstErr error
+	for _, stop := range stoppers {
+		if err := stop(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}

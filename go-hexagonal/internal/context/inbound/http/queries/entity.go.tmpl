@@ -1,0 +1,89 @@
+package queries
+
+import (
+	"net/http"
+	"strconv"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/gorilla/mux"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc"
+	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/shared"
+)
+
+type {{ .Entity | lower }}Handler struct {
+	queries   {{ .Entity | lower }}uc.{{ .Entity }}Queries
+	validator *validator.Validate
+}
+
+// {{ .Entity | lower }}QueryRegistrar registers a single query route on the router.
+//
+// Append via init() in any file that extends {{ .Entity }} query routes:
+//
+//	func init() {
+//	    {{ .Entity | lower }}QueriesActions = append({{ .Entity | lower }}QueriesActions, func(r *mux.Router, h *{{ .Entity | lower }}Handler) {
+//	        r.HandleFunc("/api/v1/.../custom", h.custom).Methods(http.MethodGet)
+//	    })
+//	}
+//
+// Setup{{ .Entity }}Routes iterates this slice — no manual wiring in wire_{{ .Entity | lower }}.go needed.
+type {{ .Entity | lower }}QueryRegistrar func(r *mux.Router, h *{{ .Entity | lower }}Handler)
+
+var {{ .Entity | lower }}QueriesActions []{{ .Entity | lower }}QueryRegistrar
+
+// Setup{{ .Entity }}Routes registers HTTP query routes for {{ .Entity }}.
+// Called from the composition root (wire_{{ .Entity | lower }}.go).
+func Setup{{ .Entity }}Routes(r *mux.Router, q {{ .Entity | lower }}uc.{{ .Entity }}Queries, v *validator.Validate) {
+	h := &{{ .Entity | lower }}Handler{queries: q, validator: v}
+	r.HandleFunc("/api/v1/projects/{projectID}/{{ .Entity | lower }}s/{id}", h.getByID).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/projects/{projectID}/{{ .Entity | lower }}s", h.list).Methods(http.MethodGet)
+	for _, fn := range {{ .Entity | lower }}QueriesActions {
+		fn(r, h)
+	}
+}
+
+func (h *{{ .Entity | lower }}Handler) getByID(w http.ResponseWriter, r *http.Request) {
+	actor, err := shared.ActorFromRequest(r.Context(), r)
+	if err != nil {
+		shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error())
+		return
+	}
+	_ = actor
+	// TODO(scaffolding): parse id from mux.Vars, call h.queries.Get{{ .Entity }}ByID(r.Context(),
+	// actor, id), then encode the response via converters.ToPublic{{ .Entity }} and
+	// shared.WriteJSON(w, http.StatusOK, resp). Map domain errors via shared.WriteDomainError.
+	// Required before any GET /{{ .Entity | lower }}s/{id} test passes — handler currently returns 501.
+	//   id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
+	//   item, err := h.queries.Get{{ .Entity }}ByID(r.Context(), actor, id)
+	//   if err != nil { shared.WriteDomainError(w, err); return }
+	//   shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}(item))
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+func (h *{{ .Entity | lower }}Handler) list(w http.ResponseWriter, r *http.Request) {
+	actor, err := shared.ActorFromRequest(r.Context(), r)
+	if err != nil {
+		shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error())
+		return
+	}
+
+	params := domain.ListParams{
+		Cursor: r.URL.Query().Get("cursor"),
+	}
+	if v := r.URL.Query().Get("limit"); v != "" {
+		params.Limit, _ = strconv.Atoi(v)
+	}
+
+	_ = actor
+	_ = params
+	// TODO(scaffolding): call h.queries.List{{ .Entity }}s(r.Context(), actor, params),
+	// then encode the result via converters.ToPublic{{ .Entity }}List (items + next_cursor)
+	// and shared.WriteJSON(w, http.StatusOK, resp). Forward domain validation errors
+	// (e.g. invalid limit) as 400 via shared.WriteDomainError.
+	// Required before any GET /{{ .Entity | lower }}s test passes — handler currently returns 501.
+	//   result, err := h.queries.List{{ .Entity }}s(r.Context(), actor, params)
+	//   if err != nil { shared.WriteDomainError(w, err); return }
+	//   shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}List(result))
+	w.WriteHeader(http.StatusNotImplemented)
+}

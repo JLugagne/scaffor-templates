@@ -1,0 +1,78 @@
+version: 3
+# Lint runs from the repository root so that cmd/ and pkg/ are in scope.
+workdir: .
+allow:
+  depOnAnyVendor: true
+  deepScan: false
+  ignoreNotFoundComponents: true
+
+excludeFiles:
+  - "^.*_test\\.go$"
+
+components:
+  domain:
+    in: "internal/{{ .Context }}/domain/**"
+  app:
+    in: "internal/{{ .Context }}/app/**"
+  inbound:
+    in: "internal/{{ .Context }}/inbound/**"
+  outbound:
+    in: "internal/{{ .Context }}/outbound/**"
+  context_config:
+    in: "internal/{{ .Context }}/config/**"
+  infra_config:
+    in: "internal/pkg/config/**"
+  infrastructure:
+    in: "internal/pkg/infrastructure/**"
+  composition:
+    in: "internal/{{ .Context }}"
+  cmd:
+    in: "cmd/**"
+  public_pkg:
+    in: "pkg/**"
+
+deps:
+  domain:
+    mayDependOn:
+      - domain
+  app:
+    mayDependOn:
+      - domain
+  outbound:
+    mayDependOn:
+      - domain
+      - public_pkg
+  inbound:
+    mayDependOn:
+      - domain
+      - inbound
+      - public_pkg
+  composition:
+    mayDependOn:
+      - domain
+      - app
+      - inbound
+      - outbound
+      - context_config
+      - infra_config
+      - infrastructure
+      - public_pkg
+  cmd:
+    mayDependOn:
+      - composition
+      - context_config
+      - infra_config
+      - infrastructure
+      - public_pkg
+  context_config:
+    mayDependOn:
+      - domain
+  infra_config:
+    mayDependOn:
+      - domain
+  infrastructure:
+    mayDependOn:
+      - domain
+  public_pkg:
+    mayDependOn:
+      - domain

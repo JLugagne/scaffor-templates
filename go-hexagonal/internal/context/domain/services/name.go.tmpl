@@ -1,0 +1,34 @@
+package services
+
+// {{ .Name }} contains pure domain logic for {{ .Name | lower }}.
+// No I/O, no interfaces — only functions operating on domain models.
+//
+// Convention:
+//   - Domain services contain pure validation/policy functions (no side effects).
+//   - State mutations belong on entity methods (e.g. order.MarkPaid()), not here.
+//   - The app service calls the domain service to validate, then calls the entity
+//     method to mutate state.
+//   - Never inject repositories or publishers into a domain service — if you need
+//     I/O, that logic belongs in the app service.
+//
+// Typical patterns:
+//
+//	// Policy check — can this actor perform this action on this entity?
+//	func (s {{ .Name }}) CanTransition(order *domain.Order, next domain.OrderStatus) error {
+//	    if order.Status() == domain.OrderStatusCancelled {
+//	        return domain.ErrOrderAlreadyCancelled
+//	    }
+//	    // ... transition rules
+//	    return nil
+//	}
+//
+//	// Aggregate invariant — does this collection satisfy a business rule?
+//	func (s {{ .Name }}) ValidateStock(items []*domain.OrderItem) error {
+//	    for _, item := range items {
+//	        if item.Quantity() <= 0 {
+//	            return domain.ErrInvalidQuantity
+//	        }
+//	    }
+//	    return nil
+//	}
+type {{ .Name }} struct{}

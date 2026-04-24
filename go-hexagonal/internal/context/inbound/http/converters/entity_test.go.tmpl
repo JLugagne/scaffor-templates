@@ -1,0 +1,8 @@
+package converters_test
+
+// Converter tests for {{ .Entity }} (exported API).
+// Generate test skeletons with go-surgeon:
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go --identifier ToPublic{{ .Entity }}
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go --identifier ToDomain{{ .Entity }}
+//
+// For tests that need access to unexported symbols, use {{ .Entity | lower }}_internal_test.go.

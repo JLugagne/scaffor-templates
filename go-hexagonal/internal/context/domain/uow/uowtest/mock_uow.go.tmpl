@@ -1,0 +1,22 @@
+package uowtest
+
+import (
+	"context"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/uow"
+)
+
+// MockUnitOfWork lets unit tests control transaction behavior without a real database.
+// Set DoFunc to simulate commit, rollback, or drive specific repository behavior.
+type MockUnitOfWork struct {
+	DoFunc func(ctx context.Context, fn func(context.Context, uow.Repositories) error) error
+}
+
+var _ uow.UnitOfWork = (*MockUnitOfWork)(nil)
+
+func (m *MockUnitOfWork) Do(ctx context.Context, fn func(context.Context, uow.Repositories) error) error {
+	if m.DoFunc == nil {
+		panic("MockUnitOfWork.DoFunc not set")
+	}
+	return m.DoFunc(ctx, fn)
+}

@@ -1,0 +1,24 @@
+package {{ .Context }}
+
+import (
+	"context"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/app"
+	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/commands"
+	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/queries"
+	{{ .Adapter }}adapter "{{ .ModulePath }}/internal/{{ .Context }}/outbound/{{ .Adapter }}"
+)
+
+func init() {
+	RegisterWire(wire{{ .Entity }})
+}
+
+func wire{{ .Entity }}(ctx context.Context, a *app.App, deps WireDeps) {
+	// Outbound: create adapters
+	{{ .Entity | lower }}Repo := {{ .Adapter }}adapter.New{{ .Entity }}Repository(deps.Backends.Postgres)
+	a.Set{{ .Entity }}Repo({{ .Entity | lower }}Repo)
+
+	// Inbound: register HTTP routes (a implements the usecase interfaces)
+	commands.Setup{{ .Entity }}Routes(deps.HTTPMux, a, deps.CmdValidator)
+	queries.Setup{{ .Entity }}Routes(deps.HTTPMux, a, deps.QueryValidator)
+}

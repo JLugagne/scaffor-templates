@@ -1,0 +1,25 @@
+-- {{ .MigrationNumber }}_{{ .MigrationSlug }}.up.sql
+-- All DDL must be idempotent (IF NOT EXISTS).
+--
+-- ID columns convention:
+--   Domain IDs are UUIDv7 strings generated in Go (uuid.NewV7). Use the native
+--   UUID column type — PostgreSQL stores it as 16 bytes (vs 36 for TEXT) and
+--   indexes it more efficiently. Do NOT use DEFAULT gen_random_uuid() — that
+--   generates UUIDv4, which is not time-ordered. IDs must come from the domain
+--   constructor (e.g. NewBookID), never from the database.
+--
+-- Example:
+--   CREATE TABLE IF NOT EXISTS books (
+--       id         UUID PRIMARY KEY,
+--       project_id UUID NOT NULL,
+--       created_at TIMESTAMPTZ NOT NULL,
+--       updated_at TIMESTAMPTZ NOT NULL
+--   );
+--   CREATE INDEX IF NOT EXISTS books_project_id_idx ON books (project_id);
+
+-- TODO(scaffolding): write the forward DDL for {{ .MigrationSlug }}.
+-- Required before any repository adapter contract test passes against this migration —
+-- an empty migration creates no tables and the first query fails with "relation ... does not exist".
+-- Every statement must be idempotent (IF NOT EXISTS / IF EXISTS) so re-running the
+-- migration suite on an already-migrated database is safe. Use native UUID for every
+-- id/project_id column — see the example above.

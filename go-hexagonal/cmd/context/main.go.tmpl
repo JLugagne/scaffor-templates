@@ -1,0 +1,156 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/oklog/run"
+
+	{{ .Context }} "{{ .ModulePath }}/internal/{{ .Context }}"
+	appconfig "{{ .ModulePath }}/internal/{{ .Context }}/config"
+	"{{ .ModulePath }}/internal/pkg/config"
+	"{{ .ModulePath }}/internal/pkg/infrastructure"
+)
+
+func main() {
+	// Load global infrastructure config
+	cfg, err := config.Load("{{ .AppName }}")
+	if err != nil {
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	// Load context-specific config
+	appCfg, err := appconfig.Load()
+	if err != nil {
+		slog.Error("failed to load app config", "error", err)
+		os.Exit(1)
+	}
+
+	// Setup structured logger
+	// TODO(scaffolding): map cfg.Logger.Level (typical values: "debug"|"info"|"warn"|"error")
+	// to the matching slog.Level. Required before runtime log filtering works — currently
+	// every process logs at Info regardless of config, making prod debugging noisy and
+	// dev sessions silent.
+	//   var lvl slog.Level
+	//   if err := lvl.UnmarshalText([]byte(cfg.Logger.Level)); err != nil { lvl = slog.LevelInfo }
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
+	// --- Init OpenTelemetry (before anything else so all spans are captured) ---
+
+	shutdownTracer, err := infrastructure.InitTracer(context.Background(), cfg.OTel.Endpoint, cfg.OTel.ServiceName)
+	if err != nil {
+		slog.Error("failed to init tracer", "error", err)
+		os.Exit(1)
+	}
+	defer shutdownTracer(context.Background())
+
+	// --- Create infrastructure backends ---
+
+	pool, err := pgxpool.New(context.Background(), cfg.Postgres.URL)
+	if err != nil {
+		slog.Error("failed to create postgres pool", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	// TODO(scaffolding): construct any additional backend clients declared in
+	// {{ .Context }}.Backends (Kafka, Redis, search, external SDKs) and pass them into
+	// the Backends struct below. Always `defer client.Close()` immediately after
+	// successful construction so shutdown is clean.
+	// Required before publishers/consumers wired via `add_publisher_adapter` can emit —
+	// without a non-nil client in Backends, their wire functions no-op or nil-panic.
+	//   kafkaWriter := &kafka.Writer{Addr: kafka.TCP(cfg.Kafka.Brokers...), ...}
+	//   defer kafkaWriter.Close()
+
+	backends := {{ .Context }}.Backends{
+		Postgres: pool,
+	}
+
+	// --- Create bounded context (instant — no setup yet) ---
+
+	app := {{ .Context }}.New()
+	appReady := &infrastructure.ReadyFlag{}
+
+	// --- HTTP server with health probes (starts BEFORE app setup) ---
+
+	router := mux.NewRouter()
+	infrastructure.SetupHealthz(router,
+		infrastructure.Postgres(pool),
+		infrastructure.App("{{ .Context }}", appReady),
+		// TODO(scaffolding): register one health check per backend added above so
+		// /healthz (and any liveness/readiness probe) actually reflects downstream
+		// availability. Required before k8s / load balancer traffic shaping works —
+		// without these, the pod reports healthy while Kafka is down.
+		//   infrastructure.Named("kafka", kafkaWriter),
+		//   infrastructure.Named("redis", redisClient),
+	)
+	router.PathPrefix("/").Handler(app) // delegates to 503 until Setup completes
+
+	httpSrv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler: router,
+	}
+
+	// --- Run group: HTTP server + app setup + signal handler ---
+
+	var g run.Group
+
+	// Actor 1: HTTP server
+	g.Add(func() error {
+		slog.Info("listening", "addr", httpSrv.Addr)
+		return httpSrv.ListenAndServe()
+	}, func(error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		httpSrv.Shutdown(ctx)
+	})
+
+	// Actor 2: app setup (migrations, wiring — may take time)
+	// The context carries OTel so the entire init is traced.
+	setupCtx, setupCancel := context.WithCancel(context.Background())
+	g.Add(func() error {
+		if err := app.Setup(setupCtx, appCfg, backends); err != nil {
+			return fmt.Errorf("app setup: %w", err)
+		}
+		appReady.MarkReady()
+		slog.Info("app ready", "context", "{{ .Context }}")
+
+		// Block until cancelled (shutdown signal).
+		<-setupCtx.Done()
+		return nil
+	}, func(error) {
+		setupCancel()
+	})
+
+	// Actor 3: OS signal handler
+	g.Add(run.SignalHandler(context.Background(), syscall.SIGINT, syscall.SIGTERM))
+
+	// --- Run until first actor exits ---
+
+	if err := g.Run(); err != nil {
+		// run.SignalError is expected on clean shutdown
+		if isSignalError(err) {
+			slog.Info("shutdown complete")
+		} else {
+			slog.Error("fatal", "error", err)
+			os.Exit(1)
+		}
+	}
+}
+
+func isSignalError(err error) bool {
+	_, ok := err.(run.SignalError)
+	return ok
+}

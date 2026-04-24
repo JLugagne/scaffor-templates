@@ -1,0 +1,82 @@
+package infrastructure
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/gorilla/mux"
+)
+
+// Checker verifies the health of a single infrastructure dependency.
+type Checker interface {
+	// Name returns a human-readable label (e.g. "postgres", "kafka").
+	Name() string
+	// Check returns nil if the dependency is healthy.
+	Check(ctx context.Context) error
+}
+
+// SetupHealthz registers /healthz and /readyz on the given router.
+// /healthz is a liveness probe — always 200.
+// /readyz checks all provided Checkers and returns 503 if any fails.
+func SetupHealthz(r *mux.Router, checkers ...Checker) {
+	r.Handle("/healthz", http.HandlerFunc(handleHealthz)).Methods(http.MethodGet)
+	r.Handle("/readyz", handleReadyz(checkers)).Methods(http.MethodGet)
+}
+
+func handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func handleReadyz(checkers []Checker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		type result struct {
+			name string
+			err  error
+		}
+
+		results := make([]result, len(checkers))
+		var wg sync.WaitGroup
+		for i, c := range checkers {
+			wg.Add(1)
+			go func(i int, c Checker) {
+				defer wg.Done()
+				results[i] = result{name: c.Name(), err: c.Check(ctx)}
+			}(i, c)
+		}
+		wg.Wait()
+
+		w.Header().Set("Content-Type", "application/json")
+
+		details := make(map[string]string, len(results))
+		allOK := true
+		for _, res := range results {
+			if res.err != nil {
+				details[res.name] = res.err.Error()
+				allOK = false
+			} else {
+				details[res.name] = "ok"
+			}
+		}
+
+		if !allOK {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":  "not_ready",
+				"details": details,
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "ready",
+			"details": details,
+		})
+	}
+}

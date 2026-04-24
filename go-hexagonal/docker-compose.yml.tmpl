@@ -1,0 +1,29 @@
+services:
+  {{ .AppName }}:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://{{ .AppName }}:{{ .AppName }}@db:5432/{{ .AppName }}?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: {{ .AppName }}
+      POSTGRES_PASSWORD: {{ .AppName }}
+      POSTGRES_DB: {{ .AppName }}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ .AppName }}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

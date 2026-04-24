@@ -1,0 +1,176 @@
+package {{ .Adapter }}adapter
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo"
+)
+
+// IDs are UUIDv7 strings generated in the domain layer (domain.New{{ .Entity }}ID).
+// Never generate IDs here — adapters persist what the domain produced.
+// Columns are declared UUID (not TEXT) in migrations; pgx auto-converts between
+// Go strings and PostgreSQL UUIDs.
+
+type {{ .Entity | lower }}Repository struct {
+	db DBTX
+}
+
+// New{{ .Entity }}Repository creates a {{ .Entity }} repository backed by the given pool.
+func New{{ .Entity }}Repository(pool *pgxpool.Pool) *{{ .Entity | lower }}Repository {
+	return &{{ .Entity | lower }}Repository{db: pool}
+}
+
+// New{{ .Entity }}RepositoryTx creates a {{ .Entity }} repository backed by a transaction.
+// Used by UnitOfWork to create transaction-scoped repositories.
+func New{{ .Entity }}RepositoryTx(tx pgx.Tx) *{{ .Entity | lower }}Repository {
+	return &{{ .Entity | lower }}Repository{db: tx}
+}
+
+// Compile-time check.
+var _ {{ .Entity | lower }}repo.{{ .Entity }}Repository = (*{{ .Entity | lower }}Repository)(nil)
+
+func (r *{{ .Entity | lower }}Repository) Create(ctx context.Context, projectID domain.ProjectID, item *domain.{{ .Entity }}) error {
+	_, err := r.db.Exec(ctx,
+		`INSERT INTO {{ .Entity | lower }}s (id, project_id, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4)`,
+		// TODO(scaffolding): add one column per mutable entity field to both the INSERT
+		// column list and the VALUES placeholders, then append the matching item.Field()
+		// getter below. Must match the migration and the domain entity's fields exactly.
+		// Required before Create persists real data — contract tests read back what was written.
+		string(item.ID()), string(projectID), item.CreatedAt(), item.UpdatedAt(),
+	)
+	if err != nil {
+		return fmt.Errorf("insert {{ .Entity | lower }}: %w", err)
+	}
+	return nil
+}
+
+func (r *{{ .Entity | lower }}Repository) FindByID(ctx context.Context, projectID domain.ProjectID, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error) {
+	row := r.db.QueryRow(ctx,
+		`SELECT id, created_at, updated_at
+		 FROM {{ .Entity | lower }}s
+		 WHERE id = $1 AND project_id = $2`,
+		// TODO(scaffolding): extend the SELECT column list to include every field
+		// Reconstitute{{ .Entity }} expects, in the SAME ORDER as the Scan below.
+		// Required before FindByID returns real data — contract tests assert field equality.
+		string(id), string(projectID),
+	)
+
+	var (
+		rawID                string
+		createdAt, updatedAt time.Time
+		// TODO(scaffolding): declare one local var per selected column (e.g. `var name string`,
+		// `var amount int64`). Must match SELECT column order and Scan argument order below.
+		// Required before FindByID can populate a domain entity.
+	)
+	if err := row.Scan(&rawID, &createdAt, &updatedAt /* TODO(scaffolding): append &name, &amount, ... matching SELECT order */); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.Err{{ .Entity }}NotFound
+		}
+		return nil, fmt.Errorf("find {{ .Entity | lower }}: %w", err)
+	}
+
+	// TODO(scaffolding): call domain.Reconstitute{{ .Entity }} with the scanned values.
+	// Required before FindByID returns a non-error result — every query test depends on this.
+	// Signature must match the struct fields exactly, e.g.:
+	//   return domain.Reconstitute{{ .Entity }}(domain.{{ .Entity }}ID(rawID), name, createdAt, updatedAt), nil
+	// Remove the stub error below and the `_ = rawID; ...` discard line once implemented.
+	_ = rawID; _ = createdAt; _ = updatedAt
+	return nil, fmt.Errorf("Reconstitute{{ .Entity }} not yet defined — implement in domain/{{ .Entity | lower }}.go")
+}
+
+func (r *{{ .Entity | lower }}Repository) List(ctx context.Context, projectID domain.ProjectID, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error) {
+	limit := params.EffectiveLimit()
+
+	// Fetch limit+1 rows to detect whether a next page exists.
+	rows, err := r.db.Query(ctx,
+		`SELECT id, created_at, updated_at
+		 FROM {{ .Entity | lower }}s
+		 WHERE project_id = $1 AND ($2 = '' OR id > $2)
+		 ORDER BY id ASC
+		 LIMIT $3`,
+		// TODO(scaffolding): pick the pagination column that is UNIQUE and MONOTONIC
+		// (id is safe; created_at + id tiebreak is typical; never a non-unique column alone).
+		// Required before List is stable across pages — contract tests paginate through the set.
+		string(projectID), params.Cursor, limit+1,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list {{ .Entity | lower }}s: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]*domain.{{ .Entity }}, 0, limit)
+	for rows.Next() {
+		var (
+			rawID                string
+			createdAt, updatedAt time.Time
+			// TODO(scaffolding): declare one local var per selected column. Must match the
+			// SELECT column order and the Scan argument order below. Required before List
+			// can populate domain entities.
+		)
+		if err := rows.Scan(&rawID, &createdAt, &updatedAt /* TODO(scaffolding): append &name, &amount, ... */); err != nil {
+			return nil, fmt.Errorf("scan {{ .Entity | lower }}: %w", err)
+		}
+		// TODO(scaffolding): append domain.Reconstitute{{ .Entity }}(...) to `items` instead
+		// of returning the stub error. Required before List returns any rows — contract tests
+		// iterate the result set. Remove the stub `return` and the `_ = rawID; ...` line.
+		_ = rawID; _ = createdAt; _ = updatedAt
+		return nil, fmt.Errorf("Reconstitute{{ .Entity }} not yet defined — implement in domain/{{ .Entity | lower }}.go")
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate {{ .Entity | lower }}s: %w", err)
+	}
+
+	var nextCursor string
+	if len(items) > limit {
+		nextCursor = string(items[limit].ID())
+		items = items[:limit]
+	}
+
+	return &domain.ListResult[*domain.{{ .Entity }}]{
+		Items:      items,
+		NextCursor: nextCursor,
+	}, nil
+}
+
+func (r *{{ .Entity | lower }}Repository) Update(ctx context.Context, projectID domain.ProjectID, item *domain.{{ .Entity }}) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE {{ .Entity | lower }}s
+		 SET updated_at = $1
+		 WHERE id = $2 AND project_id = $3`,
+		// TODO(scaffolding): for every mutable field, add `, field = $N` to the SET clause
+		// and append the matching item.Field() getter to the args below. Match domain setter
+		// semantics — never overwrite immutable fields like id/created_at.
+		// Required before Update persists edits — contract tests re-read after update.
+		item.UpdatedAt(), string(item.ID()), string(projectID),
+	)
+	if err != nil {
+		return fmt.Errorf("update {{ .Entity | lower }}: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Err{{ .Entity }}NotFound
+	}
+	return nil
+}
+
+func (r *{{ .Entity | lower }}Repository) Delete(ctx context.Context, projectID domain.ProjectID, id domain.{{ .Entity }}ID) error {
+	tag, err := r.db.Exec(ctx,
+		`DELETE FROM {{ .Entity | lower }}s
+		 WHERE id = $1 AND project_id = $2`,
+		string(id), string(projectID),
+	)
+	if err != nil {
+		return fmt.Errorf("delete {{ .Entity | lower }}: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Err{{ .Entity }}NotFound
+	}
+	return nil
+}

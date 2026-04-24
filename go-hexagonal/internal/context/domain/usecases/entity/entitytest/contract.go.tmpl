@@ -1,0 +1,51 @@
+package {{ .Entity | lower }}uctest
+
+import (
+	"testing"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc"
+)
+
+// {{ .Entity }}CommandsContractTesting is the shared contract suite for write operations.
+func {{ .Entity }}CommandsContractTesting(t *testing.T, svc {{ .Entity | lower }}uc.{{ .Entity }}Commands, actor *domain.Actor) {
+	t.Run("Contract: Create and verify", func(t *testing.T) {
+		// TODO(scaffolding): call svc.Create{{ .Entity }}(ctx, actor, ...), then read the
+		// entity back via a Queries call or direct repository access, and assert every
+		// field round-trips. Replace t.Fatal once the Create path is implemented.
+		// Required before the Create usecase is exercised by both mock and real adapter.
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+
+	t.Run("Contract: Delete removes item", func(t *testing.T) {
+		// TODO(scaffolding): create an entity, call svc.Delete{{ .Entity }}, then assert
+		// a subsequent GetByID returns Err{{ .Entity }}NotFound. Replace t.Fatal once
+		// Delete is implemented.
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+}
+
+// {{ .Entity }}QueriesContractTesting is the shared contract suite for read operations.
+func {{ .Entity }}QueriesContractTesting(t *testing.T, svc {{ .Entity | lower }}uc.{{ .Entity }}Queries, actor *domain.Actor) {
+	t.Run("Contract: GetByID returns created item", func(t *testing.T) {
+		// TODO(scaffolding): seed a known entity, call svc.Get{{ .Entity }}ByID, and assert
+		// the returned item matches field-for-field. Required before any query path is
+		// covered by contract tests.
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+
+	t.Run("Contract: List returns items in scope", func(t *testing.T) {
+		// TODO(scaffolding): seed entities under the actor's project and at least one under
+		// a different project; assert List returns only the former. Required to cover the
+		// project-scoping invariant every query must respect.
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+
+	t.Run("Contract: GetByID wrong scope returns error", func(t *testing.T) {
+		// TODO(scaffolding): seed an entity under project A, call Get{{ .Entity }}ByID with
+		// an actor whose ProjectID is B, and assert the result is Err{{ .Entity }}NotFound
+		// (NOT the entity). Required as the IDOR regression guard — if this passes against
+		// mock but fails against real adapter, the adapter is leaking rows across tenants.
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+}

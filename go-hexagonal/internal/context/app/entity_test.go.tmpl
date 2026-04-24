@@ -1,0 +1,10 @@
+package app
+
+// Unit tests for {{ .Entity }} app service methods using mocks.
+// Generate test skeletons with go-surgeon:
+//   go-surgeon test --file internal/{{ .Context }}/app/{{ .Entity | lower }}.go --identifier App.Create{{ .Entity }}
+//   go-surgeon test --file internal/{{ .Context }}/app/{{ .Entity | lower }}.go --identifier App.Get{{ .Entity }}ByID
+//   go-surgeon test --file internal/{{ .Context }}/app/{{ .Entity | lower }}.go --identifier App.List{{ .Entity }}s
+//   go-surgeon test --file internal/{{ .Context }}/app/{{ .Entity | lower }}.go --identifier App.Delete{{ .Entity }}
+//
+// package app (white-box) so tests can reference *App directly in table structs.

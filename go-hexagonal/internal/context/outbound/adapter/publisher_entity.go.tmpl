@@ -1,0 +1,57 @@
+package {{ .Adapter }}adapter
+
+import (
+	"context"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub"
+)
+
+type {{ .Entity | lower }}Publisher struct {
+	backend Backend
+}
+
+// New{{ .Entity }}Publisher creates a new {{ .Entity }} event publisher.
+// backend is the shared Backend interface defined in backend.go.
+func New{{ .Entity }}Publisher(backend Backend) *{{ .Entity | lower }}Publisher {
+	return &{{ .Entity | lower }}Publisher{backend: backend}
+}
+
+// Compile-time check.
+var _ {{ .Entity | lower }}pub.{{ .Entity }}Publisher = (*{{ .Entity | lower }}Publisher)(nil)
+
+{{ if .Events -}}
+{{ range (splitList "," .Events) }}
+func (p *{{ $.Entity | lower }}Publisher) Publish{{ $.Entity }}{{ . | trim }}(ctx context.Context, item *domain.{{ $.Entity }}) error {
+	// TODO(scaffolding): serialize `item` into a pkg/{{ $.Context }}/events/v1.{{ $.Entity }}{{ . | trim }}Event
+	// payload (json.Marshal) and publish it on p.backend using the concrete broker method
+	// (e.g. kafka-go Writer.WriteMessages, sqs SendMessage, nats.Conn.Publish).
+	// Required before this publisher can emit events — contract tests and app-service
+	// integration tests expect real delivery.
+	// Include a correlation/trace ID from ctx, set the topic/subject from config, and
+	// return any transport error unwrapped so callers can distinguish transient failures.
+	return nil
+}
+{{ end -}}
+{{ else -}}
+func (p *{{ .Entity | lower }}Publisher) Publish{{ .Entity }}Created(ctx context.Context, item *domain.{{ .Entity }}) error {
+	// TODO(scaffolding): serialize `item` into a pkg/{{ .Context }}/events/v1.{{ .Entity }}CreatedEvent
+	// payload (json.Marshal) and publish it on p.backend using the concrete broker method
+	// (e.g. kafka-go Writer.WriteMessages, sqs SendMessage, nats.Conn.Publish).
+	// Required before this publisher can emit events — contract tests and app-service
+	// integration tests expect real delivery.
+	// Include a correlation/trace ID from ctx, set the topic/subject from config, and
+	// return any transport error unwrapped.
+	return nil
+}
+
+func (p *{{ .Entity | lower }}Publisher) Publish{{ .Entity }}Deleted(ctx context.Context, id domain.{{ .Entity }}ID) error {
+	// TODO(scaffolding): serialize `id` into a pkg/{{ .Context }}/events/v1.{{ .Entity }}DeletedEvent
+	// payload (json.Marshal) and publish it on p.backend using the concrete broker method.
+	// Required before this publisher can emit events — contract tests and app-service
+	// integration tests expect real delivery.
+	// Include a correlation/trace ID from ctx, set the topic/subject from config, and
+	// return any transport error unwrapped.
+	return nil
+}
+{{ end -}}

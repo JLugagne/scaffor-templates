@@ -1,0 +1,27 @@
+package config
+
+import "os"
+
+// Config holds configuration specific to the {{ .Context }} bounded context.
+// Infrastructure config (server, postgres, kafka) is in internal/pkg/config.
+// This file is for context-specific business settings only.
+//
+// CONSTRAINT: only imports stdlib — never import internal packages.
+type Config struct {
+	// TODO(scaffolding): add one field per business setting this context needs at runtime
+	// (limits, defaults, feature toggles, auth secrets). Populate each field in Load() from
+	// os.Getenv with explicit type conversion and defaults. Do not add infrastructure config
+	// (DB URL, broker endpoints) — those live in internal/pkg/config.
+	// Required before domain invariants that depend on config (e.g. MaxOrderItems) can be
+	// enforced — otherwise setters fall back to hard-coded fallbacks scattered in code.
+	//   MaxOrderItems   int
+	//   DefaultCurrency string
+	//   JWTSecret       string
+}
+
+// Load reads context-specific configuration from environment variables.
+func Load() (*Config, error) {
+	cfg := &Config{}
+	_ = os.Getenv // placeholder to avoid unused import
+	return cfg, nil
+}

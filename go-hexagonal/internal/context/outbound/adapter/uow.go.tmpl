@@ -1,0 +1,60 @@
+package {{ .Adapter }}adapter
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/uow"
+)
+
+type pgUnitOfWork struct {
+	pool *pgxpool.Pool
+}
+
+// NewUnitOfWork creates a UoW backed by the given connection pool.
+// Each call to Do starts a new transaction and passes transaction-scoped
+// repositories to the callback via pgRepositories.
+func NewUnitOfWork(pool *pgxpool.Pool) uow.UnitOfWork {
+	return &pgUnitOfWork{pool: pool}
+}
+
+func (u *pgUnitOfWork) Do(ctx context.Context, fn func(ctx context.Context, repos uow.Repositories) error) error {
+	tx, err := u.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	repos := &pgRepositories{tx: tx}
+	if err := fn(ctx, repos); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+// pgRepositories implements uow.Repositories with transaction-scoped repos.
+// Add one method per repository the feature needs, passing tx to the repo constructor.
+type pgRepositories struct {
+	tx pgx.Tx
+}
+
+// TODO(scaffolding): add one accessor method per repository the feature needs.
+// Required before any app-service transaction test passes — usecases call repos through this.
+// Each accessor must create a transaction-scoped repo via NewXxxRepositoryTx(r.tx)
+// so every repository call inside a UoW.Do callback participates in the same transaction:
+//
+//   func (r *pgRepositories) Books() bookrepo.BookRepository {
+//       return NewBookRepositoryTx(r.tx)
+//   }
+//   func (r *pgRepositories) Orders() orderrepo.OrderRepository {
+//       return NewOrderRepositoryTx(r.tx)
+//   }
+//
+// The `add_uow_accessor` scaffor command adds one accessor to this file and the matching
+// method to the uow.Repositories interface and its mock in one shot.

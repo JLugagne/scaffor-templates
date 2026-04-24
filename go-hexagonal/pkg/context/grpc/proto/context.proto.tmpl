@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package {{ .Context }};
+
+option go_package = "{{ .ModulePath }}/pkg/{{ .Context }}/grpc";
+
+// Proto definitions for the {{ .Context }} context.
+// Generated Go code goes to pkg/{{ .Context }}/grpc/.
+//
+// Run: protoc --go_out=. --go-grpc_out=. pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto

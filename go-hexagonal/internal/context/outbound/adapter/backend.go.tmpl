@@ -1,0 +1,26 @@
+package {{ .Adapter }}adapter
+
+// Backend abstracts over the messaging client so tests can inject a fake.
+// Replace this with the concrete interface matching your {{ .Adapter }} client.
+// All publishers in this package share this interface.
+type Backend interface {
+	// TODO(scaffolding): declare the method(s) the publishers in this package call.
+	// Required before any publisher test passes — publisher_*.go calls p.backend.X(ctx, ...).
+	// Pick ONE shape based on the broker:
+	//
+	//   nats (nats.go):
+	//     Publish(subject string, data []byte) error
+	//     PublishMsg(msg *nats.Msg) error
+	//
+	//   rabbitmq (amqp091-go):
+	//     PublishWithContext(ctx context.Context, exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
+	//
+	//   kafka (segmentio/kafka-go):
+	//     WriteMessages(ctx context.Context, msgs ...kafka.Message) error
+	//
+	//   sqs (aws-sdk-go-v2):
+	//     SendMessage(ctx context.Context, params *sqs.SendMessageInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageOutput, error)
+	//
+	// Keep the interface narrow (only what publishers need) so tests can implement it
+	// with a channel-backed fake.
+}

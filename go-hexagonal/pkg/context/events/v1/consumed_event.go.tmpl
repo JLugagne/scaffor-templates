@@ -1,0 +1,14 @@
+package {{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}eventsv1
+
+// {{ .Event }}Event is received from other bounded contexts.
+// Use string for IDs and timestamps — events cross service boundaries.
+type {{ .Event }}Event struct {
+	// TODO(scaffolding): declare one field per payload attribute emitted by {{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }},
+	// using string for IDs and RFC3339 strings for timestamps (events cross process / language
+	// boundaries — no typed Go domain types here).
+	// Required before consumer handlers can read event data — empty struct silently accepts
+	// any JSON but yields zero values, so downstream usecase calls get null inputs.
+	//   AccountID string `json:"account_id"`
+	//   Reason    string `json:"reason"`
+	Timestamp string `json:"timestamp"`
+}

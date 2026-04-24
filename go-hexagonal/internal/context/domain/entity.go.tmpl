@@ -1,0 +1,91 @@
+package domain
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// {{ .Entity }}ID is the typed identifier for {{ .Entity }}.
+//
+// Format: UUIDv7 as string. UUIDv7 is time-ordered (the first 48 bits are a
+// Unix-ms timestamp) so rows sort naturally by creation order in DB indexes —
+// better insert locality than UUIDv4 and no need for a separate created_at sort.
+// Always use New{{ .Entity }}ID (or domain constructors that call it) — never
+// generate ad-hoc UUIDs in adapters.
+type {{ .Entity }}ID string
+
+// New{{ .Entity }}ID generates a new time-ordered UUIDv7 {{ .Entity }}ID.
+// Must is used because uuid.NewV7 only errors if crypto/rand is unavailable —
+// at that point the process cannot function anyway.
+func New{{ .Entity }}ID() {{ .Entity }}ID {
+	return {{ .Entity }}ID(uuid.Must(uuid.NewV7()).String())
+}
+
+// Domain errors for {{ .Entity }} — defined as package-level vars for testability
+// (tests can use errors.Is or direct comparison).
+var (
+	Err{{ .Entity }}NotFound = NewError("{{ .Entity | upper }}_NOT_FOUND", "{{ .Entity | lower }} not found")
+	// TODO(scaffolding): declare one var per distinct invariant violation. Each must have a
+	// stable UPPER_SNAKE code (used by API error responses / clients) and a human message.
+	// Required before unit tests can assert specific failure modes via errors.Is.
+	// Examples:
+	//   Err{{ .Entity }}NameRequired = NewError("{{ .Entity | upper }}_NAME_REQUIRED", "{{ .Entity | lower }} name is required")
+	//   Err{{ .Entity }}AmountNegative = NewError("{{ .Entity | upper }}_AMOUNT_NEGATIVE", "{{ .Entity | lower }} amount must be positive")
+)
+
+// {{ .Entity }} is the domain model. All fields are unexported — access via getters,
+// mutate via setters that enforce invariants.
+type {{ .Entity }} struct {
+	id        {{ .Entity }}ID
+	// TODO(scaffolding): declare one unexported field per domain attribute using a typed
+	// value where possible (domain.Money, domain.{{ .Entity }}Status, etc. — not raw primitives).
+	// Required before the entity can hold any state — getters/setters below will target these.
+	createdAt time.Time
+	updatedAt time.Time
+}
+
+// New{{ .Entity }} creates a validated {{ .Entity }}.
+// All construction goes through here so invariants are always enforced.
+func New{{ .Entity }}() (*{{ .Entity }}, error) {
+	return &{{ .Entity }}{
+		id:        New{{ .Entity }}ID(),
+		createdAt: time.Now(),
+		updatedAt: time.Now(),
+	}, nil
+}
+
+// TODO(scaffolding): define Reconstitute{{ .Entity }} accepting every field declared above,
+// in the same order the repository's Scan fills them. Do NOT run validation here — trusted
+// inputs only (coming from the DB). Repository adapters depend on this to rebuild entities,
+// and without it FindByID/List return the "Reconstitute{{ .Entity }} not yet defined" stub.
+// Required before any repository adapter contract test passes.
+//
+//	func Reconstitute{{ .Entity }}(id {{ .Entity }}ID, name string, createdAt, updatedAt time.Time) *{{ .Entity }} {
+//	    return &{{ .Entity }}{id: id, name: name, createdAt: createdAt, updatedAt: updatedAt}
+//	}
+
+// --- Getters ---
+
+func (e *{{ .Entity }}) ID() {{ .Entity }}ID   { return e.id }
+func (e *{{ .Entity }}) CreatedAt() time.Time   { return e.createdAt }
+func (e *{{ .Entity }}) UpdatedAt() time.Time   { return e.updatedAt }
+
+// --- Setters (return domain errors) ---
+
+// TODO(scaffolding): add one setter per MUTABLE field. Each setter must:
+//  1. Validate the input and return a named Err{{ .Entity }}XxxRequired / Invalid on failure.
+//  2. Bump e.updatedAt = time.Now() on success.
+//  3. Never expose the underlying field — all mutation goes through setters so repository
+//     updates and usecase calls can never violate an invariant.
+// Required before any app-service unit test passes — handlers call these setters during
+// the read-before-write update path.
+//
+//	func (e *{{ .Entity }}) SetName(name string) error {
+//	    if strings.TrimSpace(name) == "" {
+//	        return Err{{ .Entity }}NameRequired
+//	    }
+//	    e.name = strings.TrimSpace(name)
+//	    e.updatedAt = time.Now()
+//	    return nil
+//	}

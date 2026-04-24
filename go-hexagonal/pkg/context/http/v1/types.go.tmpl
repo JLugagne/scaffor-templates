@@ -1,0 +1,9 @@
+// Package v1 contains public HTTP API types for the {{ .Context }} context.
+// These types define the JSON contract with API consumers.
+// Never embed domain types here — use converters for mapping.
+package v1
+
+import "github.com/go-playground/validator/v10"
+
+// validate is the shared validator instance for all request types in this package.
+var validate = validator.New(validator.WithRequiredStructEnabled())

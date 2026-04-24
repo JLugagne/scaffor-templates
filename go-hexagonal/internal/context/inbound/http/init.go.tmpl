@@ -1,0 +1,18 @@
+package http
+
+import (
+	"net/http"
+
+	"github.com/gorilla/mux"
+)
+
+// SetupRouter applies shared middleware to the router.
+// Per-entity routes are registered directly by wire files via
+// commands.Setup{Entity}Routes and queries.Setup{Entity}Routes.
+// Health probes (/healthz, /readyz) are registered by main.go via
+// internal/pkg/infrastructure.SetupHealthz.
+func SetupRouter(r *mux.Router, middlewares ...func(http.Handler) http.Handler) {
+	for _, m := range middlewares {
+		r.Use(mux.MiddlewareFunc(m))
+	}
+}

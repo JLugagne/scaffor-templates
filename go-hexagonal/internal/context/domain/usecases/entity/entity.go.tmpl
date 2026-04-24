@@ -1,0 +1,29 @@
+package {{ .Entity | lower }}uc
+
+import (
+	"context"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+)
+
+// {{ .Entity }}Commands is the inbound port for write operations.
+// Implemented by app/, consumed by inbound handlers.
+//
+// Convention: Commands mutate state, Queries read it — never mix the two.
+// Methods are prefixed with the entity name so that a single *App struct
+// can implement Commands + Queries for multiple entities without collision.
+// Rename methods to reflect the ubiquitous language of your domain
+// (e.g. PlaceOrder, PayOrder instead of Create{{ .Entity }}, Update{{ .Entity }}).
+type {{ .Entity }}Commands interface {
+	Create{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error)
+	Delete{{ .Entity }}(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) error
+}
+
+// {{ .Entity }}Queries is the inbound port for read operations.
+// Implemented by app/, consumed by inbound handlers.
+//
+// Convention: Queries must never produce side-effects or call Commands methods.
+type {{ .Entity }}Queries interface {
+	Get{{ .Entity }}ByID(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error)
+	List{{ .Entity }}s(ctx context.Context, actor *domain.Actor, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error)
+}

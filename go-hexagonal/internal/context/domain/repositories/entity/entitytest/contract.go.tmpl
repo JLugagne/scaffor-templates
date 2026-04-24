@@ -1,0 +1,51 @@
+package {{ .Entity | lower }}repotest
+
+import (
+	"testing"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo"
+)
+
+// {{ .Entity }}ContractTesting is the shared contract suite. Both the mock and the
+// real adapter run this same function, so if the mock says "Create stores and
+// FindByID retrieves" then the real adapter must too.
+func {{ .Entity }}ContractTesting(t *testing.T, repo {{ .Entity | lower }}repo.{{ .Entity }}Repository, projectID domain.ProjectID) {
+	t.Run("Contract: Create stores and FindByID retrieves", func(t *testing.T) {
+		// TODO(scaffolding): construct a new domain.{{ .Entity }}, call repo.Create, then
+		// repo.FindByID with the same projectID+id, and assert every field (including
+		// timestamps within tolerance) round-trips. Replace t.Fatal once the adapter
+		// implements Reconstitute{{ .Entity }}. Required before the adapter proves it
+		// persists real data.
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+
+	t.Run("Contract: FindByID wrong scope returns error", func(t *testing.T) {
+		// IDOR contract: attempting to read an entity using a different
+		// project scope MUST return an error, not the entity.
+		// TODO(scaffolding): seed an entity under project A, call FindByID with projectID=B
+		// and the same id, and assert Err{{ .Entity }}NotFound. Required as the IDOR
+		// regression guard — this is the single test that proves tenant isolation at the
+		// adapter layer.
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+
+	t.Run("Contract: List returns only items in scope", func(t *testing.T) {
+		// TODO(scaffolding): seed items under two project IDs; call List with one of them;
+		// assert the result contains only that project's items. Required to cover scoping
+		// in pagination — the single most common leak point.
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+
+	t.Run("Contract: Delete removes item", func(t *testing.T) {
+		// TODO(scaffolding): create, delete, then FindByID and assert Err{{ .Entity }}NotFound.
+		// Also call Delete a second time and assert the same error (idempotent contract).
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+
+	t.Run("Contract: FindByID not found returns error", func(t *testing.T) {
+		// TODO(scaffolding): call FindByID with a freshly generated id that was never
+		// persisted; assert Err{{ .Entity }}NotFound. Required so callers can rely on
+		// errors.Is for not-found, instead of nil-checking the return value.
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+}

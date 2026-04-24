@@ -1,0 +1,72 @@
+package domain
+
+import "github.com/google/uuid"
+
+// ActorID is the typed identifier for an authenticated actor.
+//
+// Format: UUIDv7 as string — time-ordered, DB-friendly (see ProjectID doc).
+type ActorID string
+
+// NewActorID generates a new time-ordered UUIDv7 ActorID.
+func NewActorID() ActorID {
+	return ActorID(uuid.Must(uuid.NewV7()).String())
+}
+
+// Domain errors for Actor — defined as package-level vars for testability
+// (tests can use errors.Is or direct comparison).
+var (
+	ErrActorNotFound        = NewError("ACTOR_NOT_FOUND", "actor not found")
+	ErrActorUnauthorized    = NewError("ACTOR_UNAUTHORIZED", "actor is not authorized")
+	ErrActorIDRequired      = NewError("ACTOR_ID_REQUIRED", "actor id is required")
+	ErrActorProjectRequired = NewError("ACTOR_PROJECT_ID_REQUIRED", "actor project id is required")
+)
+
+// Actor represents the authenticated identity performing an action.
+// Extracted from protocol-specific sources (HTTP headers, gRPC metadata)
+// by inbound adapters and passed explicitly to app/domain — never via context.
+type Actor struct {
+	id        ActorID
+	projectID ProjectID
+	roles     []string
+	// TODO(scaffolding): add richer authorization attributes the domain will inspect —
+	// typed roles, permissions, or a scope set. Keep them unexported and expose predicate
+	// getters like Can(Permission). The default `roles []string` handles simple RBAC via
+	// AddRole / HasRole; upgrade to typed roles when the authorization model grows.
+}
+
+// NewActor creates a validated Actor.
+func NewActor(id ActorID, projectID ProjectID) (*Actor, error) {
+	if id == "" {
+		return nil, ErrActorIDRequired
+	}
+	if projectID == "" {
+		return nil, ErrActorProjectRequired
+	}
+	return &Actor{
+		id:        id,
+		projectID: projectID,
+		roles:     []string{},
+	}, nil
+}
+
+// --- Getters ---
+
+func (a *Actor) ID() ActorID          { return a.id }
+func (a *Actor) ProjectID() ProjectID { return a.projectID }
+
+// AddRole appends a role to the actor's role set (duplicates are allowed —
+// HasRole still reports true). Called by inbound adapters after extracting
+// role claims from headers, JWT, or session.
+func (a *Actor) AddRole(role string) {
+	a.roles = append(a.roles, role)
+}
+
+// HasRole reports whether the actor has been granted the given role.
+func (a *Actor) HasRole(role string) bool {
+	for _, r := range a.roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}

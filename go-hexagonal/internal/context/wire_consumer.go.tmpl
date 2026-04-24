@@ -1,0 +1,56 @@
+package {{ .Context }}
+
+import (
+	"context"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/app"
+	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/events/consumers"
+)
+
+func init() {
+	RegisterConsumer(wire{{ .Entity }}Consumer)
+}
+
+func wire{{ .Entity }}Consumer(ctx context.Context, a *app.App, deps WireDeps) (
+	start func(context.Context) error,
+	stop func(context.Context) error,
+) {
+	// The consumer depends on local usecase interfaces. The App struct (a)
+	// implements all local usecase interfaces — inject it (or a narrower subset)
+	// into the consumer after updating New{{ .Entity }}Consumer's signature.
+	_ = a
+	handler := consumers.New{{ .Entity }}Consumer()
+
+	// TODO(scaffolding): create a broker subscription from deps.Backends.Broker
+	// (or your chosen Backend field) and wire it to handler.Handle{{ .Event }}Event.
+	// Required before the consumer observes any event.
+	// Examples for common brokers:
+	//
+	//   NATS (nats.go):
+	//     sub, err := deps.Backends.Nats.Subscribe("{{ .Entity | lower }}.events", func(m *nats.Msg) {
+	//         _ = handler.Handle{{ .Event }}Event(ctx, m.Data)
+	//     })
+	//
+	//   RabbitMQ (amqp091-go):
+	//     msgs, err := deps.Backends.Amqp.Consume("{{ .Entity | lower }}.queue", "", false, false, false, false, nil)
+	//     go func() { for m := range msgs { _ = handler.Handle{{ .Event }}Event(ctx, m.Body); m.Ack(false) } }()
+	//
+	//   Kafka (kafka-go):
+	//     reader := kafka.NewReader(kafka.ReaderConfig{Brokers: ..., Topic: "...", GroupID: "..."})
+	//     // start() loops on reader.ReadMessage; stop() calls reader.Close()
+	_ = handler
+
+	start = func(ctx context.Context) error {
+		// TODO(scaffolding): block here reading messages until ctx is cancelled.
+		// For NATS/RabbitMQ with callback-based consumption, simply wait:
+		<-ctx.Done()
+		return nil
+	}
+	stop = func(ctx context.Context) error {
+		// TODO(scaffolding): close the broker subscription/reader cleanly.
+		// For NATS: sub.Unsubscribe(). For RabbitMQ: channel.Close().
+		// For Kafka: reader.Close().
+		return nil
+	}
+	return start, stop
+}

@@ -1,0 +1,40 @@
+package commands
+
+import (
+	"net/http"
+
+	"github.com/gorilla/mux"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/shared"
+)
+
+func init() {
+	{{ .Entity | lower }}CommandsActions = append({{ .Entity | lower }}CommandsActions, func(r *mux.Router, h *{{ .Entity | lower }}Handler) {
+		r.HandleFunc("/api/v1/projects/{projectID}/{{ .Entity | lower }}s/{id}/{{ .Action | lower }}", h.{{ .Action | lower }}).Methods(http.MethodPost)
+	})
+}
+
+func (h *{{ .Entity | lower }}Handler) {{ .Action | lower }}(w http.ResponseWriter, r *http.Request) {
+	actor, err := shared.ActorFromRequest(r.Context(), r)
+	if err != nil {
+		shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error())
+		return
+	}
+
+	vars := mux.Vars(r)
+	id := domain.{{ .Entity }}ID(vars["id"])
+
+	// TODO(scaffolding): call h.svc.{{ .Action }}{{ .Entity }}(r.Context(), actor, id)
+	// and, if the action needs a body, decode+validate a v1.{{ .Action }}{{ .Entity }}Request
+	// first. Return http.StatusOK with the updated entity (or StatusNoContent for
+	// side-effect-only actions), mapping domain errors via shared.WriteDomainError.
+	// Required before any POST /{{ .Entity | lower }}s/{id}/{{ .Action | lower }} test
+	// passes — handler currently returns 501.
+	//   updated, err := h.svc.{{ .Action }}{{ .Entity }}(r.Context(), actor, id)
+	//   if err != nil { shared.WriteDomainError(w, err); return }
+	//   shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}(updated))
+	_ = actor
+	_ = id
+	w.WriteHeader(http.StatusNotImplemented)
+}

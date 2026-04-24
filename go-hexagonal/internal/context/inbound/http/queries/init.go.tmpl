@@ -1,0 +1,9 @@
+package queries
+
+import "github.com/go-playground/validator/v10"
+
+// NewValidator creates a shared validator instance for all query handlers.
+// Called once from the composition root, then passed to per-entity setup functions.
+func NewValidator() *validator.Validate {
+	return validator.New(validator.WithRequiredStructEnabled())
+}

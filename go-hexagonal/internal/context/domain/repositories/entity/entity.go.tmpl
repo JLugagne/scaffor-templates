@@ -1,0 +1,21 @@
+package {{ .Entity | lower }}repo
+
+import (
+	"context"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+)
+
+// {{ .Entity }}Repository is the outbound port for {{ .Entity }} persistence.
+// The domain and app layers depend on this interface, never on the concrete adapter.
+//
+// Convention: every method takes projectID as its first non-ctx parameter — this is the
+// tenant isolation boundary (IDOR protection). Parameter order: broad to narrow —
+// (projectID, entityID) — never reversed.
+type {{ .Entity }}Repository interface {
+	Create(ctx context.Context, projectID domain.ProjectID, item *domain.{{ .Entity }}) error
+	FindByID(ctx context.Context, projectID domain.ProjectID, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error)
+	List(ctx context.Context, projectID domain.ProjectID, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error)
+	Update(ctx context.Context, projectID domain.ProjectID, item *domain.{{ .Entity }}) error
+	Delete(ctx context.Context, projectID domain.ProjectID, id domain.{{ .Entity }}ID) error
+}

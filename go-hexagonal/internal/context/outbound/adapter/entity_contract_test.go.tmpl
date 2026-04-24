@@ -1,0 +1,7 @@
+package {{ .Adapter }}adapter_test
+
+// Contract test for {{ .Entity }} repository adapter (exported API).
+// Runs shared contract tests from {{ .Entity | lower }}test against real infrastructure via testcontainers.
+//
+// Generate a test skeleton with go-surgeon, then adapt to call the shared contract:
+//   go-surgeon test --file internal/{{ .Context }}/outbound/{{ .Adapter }}/{{ .Adapter }}_{{ .Entity | lower }}.go --identifier {{ .Entity | lower }}Repository.Create

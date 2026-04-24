@@ -1,0 +1,26 @@
+package uow
+
+import "context"
+
+// UnitOfWork wraps multiple repository operations in a single transaction.
+// The Do callback receives a context that carries the transaction — every
+// repository obtained from repos uses that same transaction.
+type UnitOfWork interface {
+	// Do executes fn inside a transaction. If fn returns an error the
+	// transaction is rolled back; otherwise it commits.
+	Do(ctx context.Context, fn func(ctx context.Context, repos Repositories) error) error
+}
+
+// Repositories is a factory for transaction-scoped repository instances.
+// Add one method per repository the feature needs.
+type Repositories interface {
+	// TODO(scaffolding): declare one zero-arg accessor per repository the feature mutates
+	// inside a transaction. Return the domain repository interface (not the pg impl),
+	// so app services depend only on the domain layer.
+	// Required before any app-service test that uses UoW.Do passes — without these methods
+	// the mock cannot hand back transaction-scoped repos.
+	// Use the `add_uow_accessor` scaffor command (see manifest) to add each accessor and
+	// keep the pg impl + mock in sync.
+	//   Projects() projectrepo.ProjectRepository
+	//   Orders()   orderrepo.OrderRepository
+}

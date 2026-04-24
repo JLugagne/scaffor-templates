@@ -1,0 +1,326 @@
+# Architecture — {{ .AppName }}
+
+This document explains the design decisions behind this project's hexagonal
+architecture. Read this before diving into the code — it should take about
+fifteen minutes and save you hours of reverse-engineering.
+
+## Why hexagonal?
+
+The goal is a single rule: **domain code has zero external dependencies**.
+Business logic doesn't know about HTTP, Postgres, Kafka, or JSON. Every
+interaction with the outside world goes through a port (interface) that the
+domain defines and an adapter that implements it. This makes the domain
+testable with pure unit tests and the adapters swappable without touching
+business rules.
+
+## Directory map
+
+```
+cmd/{{ .Context }}/                       entry point — parses config, calls init.go
+internal/{{ .Context }}/
+  init.go                                 composition root — Setup(), WireFunc registration
+  wire_{entity}.go                        per-entity wiring (one per entity, via init())
+  config/                                 env-var loading (stdlib only, no internal imports)
+  domain/
+    {entity}.go                           entities, value objects, typed IDs, errors
+    actor.go                              authenticated identity (Actor)
+    query.go                              cursor pagination (ListParams, ListResult)
+    usecases/{entity}/                    inbound port interfaces (Commands + Queries)
+    repositories/{entity}/                outbound port interfaces (persistence)
+    publishers/{entity}/                  outbound port interfaces (events)
+    services/                             pure domain logic (no I/O, no ports)
+  app/                                    orchestration (implements usecases)
+  inbound/
+    http/{commands,queries,shared}/       HTTP handlers
+    grpc/{commands,queries}/              gRPC handlers
+    {protocol}/consumers/                 message queue consumers
+  outbound/{adapter}/                     concrete adapter implementations
+pkg/{{ .Context }}/
+  http/v1/                                public HTTP types (requests, responses)
+  events/v1/                              public event types (consumed, emitted)
+  grpc/proto/                             proto definitions + generated code
+tests/e2e-api/                            end-to-end tests
+```
+
+## Key decisions
+
+### `domain/usecases/` vs `domain/services/`
+
+These two directories serve fundamentally different purposes:
+
+- **`usecases/{entity}/`** — port interfaces. They define *what the outside
+  world can ask the application to do*: `{Entity}Commands` (writes) and
+  `{Entity}Queries` (reads). Implemented by `app/`, called by inbound
+  adapters (HTTP handlers, gRPC handlers, consumers). This is the CQRS
+  split at the interface level.
+
+- **`services/`** — pure domain logic. Functions and types that encode
+  business rules, calculations, or policies. They take domain types in and
+  return domain types out, with no I/O. Example: a pricing engine, an
+  eligibility checker, a scheduling algorithm. No interfaces, no ports —
+  just code that `app/` or entities themselves can call.
+
+The naming avoids the DDD overload where "service" means both an orchestrator
+and a domain concept. Here, if it's a port, it's a usecase. If it's pure
+logic, it's a service.
+
+### Composition root: `init.go` + per-entity `wire_*.go` files
+
+`cmd/{context}/main.go` handles only three things: load config, set up the
+logger, and call `internal/{context}.Setup(ctx, cfg)`. All dependency wiring
+lives in `init.go` and companion `wire_*.go` files:
+
+- **`init.go`** — defines `Setup()`, which creates the `App`, runs migrations,
+  sets up the HTTP router, and calls all registered `WireFunc`s. It never
+  mentions specific entities.
+
+- **`wire_{entity}.go`** — one file per entity. Each registers a `WireFunc`
+  via Go's `init()` mechanism. The wire function creates the entity's adapters
+  (repository, publisher), injects them into the App via setter methods, and
+  registers inbound HTTP/gRPC routes. Adding a new entity means adding a new
+  file — no edits to `init.go`.
+
+  ```go
+  // wire_book.go
+  func init() { RegisterWire(wireBook) }
+
+  func wireBook(ctx context.Context, a *app.App, deps WireDeps) {
+      bookRepo := pg.NewBookRepository(deps.Backends.Postgres)
+      a.SetBookRepo(bookRepo)
+      commands.SetupBookRoutes(deps.HTTPMux, a, deps.CmdValidator)
+      queries.SetupBookRoutes(deps.HTTPMux, a, deps.QueryValidator)
+  }
+  ```
+
+  Note: `a` (concrete `*app.App`) is passed to `SetupBookRoutes`, but the
+  function signature accepts `book.BookCommands` (domain interface). Go's
+  structural typing handles this — `*app.App` implements `BookCommands`.
+
+- **Testability** — `Setup()` takes a `*config.Config` and `Backends`.
+  Integration tests can call `Setup()` directly with a test config, without
+  launching a full binary.
+
+- **Single import** — `cmd/` only imports `internal/{context}/` (composition),
+  `internal/{context}/config/`, and `internal/pkg/`. It never reaches into
+  domain, app, inbound, or outbound. This is enforced by `go-arch-lint`
+  (the `cmd` component can only use `composition`, config, and infrastructure).
+
+- **Multi-binary support** — `cmd/worker/main.go` or `cmd/migrator/main.go`
+  can reuse the same bounded context with a different entry point.
+
+### Actor as explicit parameter
+
+`domain.Actor` represents the authenticated identity (user ID + project ID).
+It is **never** stored in context. Instead it is:
+
+1. Extracted from the HTTP request (header/token) by `shared.ActorFromRequest`
+2. Passed explicitly to every usecase method: `Create(ctx, actor, ...)`
+3. Used by `app/` to get the `ProjectID` for repository scoping
+
+This makes authorization visible in every call chain. You can't accidentally
+bypass it by forgetting to populate the context. Tests construct an `Actor`
+directly — no middleware setup needed.
+
+### Config is isolated
+
+`config/` imports only stdlib (`os`, `fmt`, `strconv`). No internal packages,
+no domain types. This is enforced by `go-arch-lint` (`config: mayDependOn: []`).
+
+Only the composition root (`init.go`) reads config. App and outbound layers
+receive their dependencies as constructor arguments. This means:
+
+- Adapters are testable without config fixtures
+- Config shape can change without touching business logic
+- Multiple bounded contexts can have different configs in the same binary
+
+### Versioned public types
+
+`pkg/{context}/` is the public API contract. It's versioned by protocol and
+audience:
+
+- **`http/v1/`** — HTTP request/response DTOs with `json` tags and
+  `validate` tags. Package name is `v1`. Breaking changes get a `v2/`
+  directory with a new package — no import path rewrite needed for consumers
+  still on v1.
+
+- **`events/v1/`** — event payloads for async messaging (Kafka, SQS, etc.).
+  Versioned separately from HTTP because event schemas evolve on a different
+  cadence. An HTTP API might be on v3 while events are still on v1. Mixing
+  them forces unnecessary version bumps.
+
+- **`grpc/`** — proto-generated types. Versioning is handled by protobuf's
+  own `package` directive, so no `/v1/` directory here.
+
+### CQRS split in handlers
+
+HTTP and gRPC handlers are split into `commands/` (writes) and `queries/`
+(reads). This isn't about event sourcing — it's about separation of concerns:
+
+- **Commands** (POST/PUT/DELETE) decode a request body, validate it, call
+  usecase Commands, return a status.
+- **Queries** (GET) parse query params (cursor, limit, filters), call usecase
+  Queries, convert the result to a response.
+
+Each entity defines its own handler struct with the relevant usecase
+interface (`{Entity}Commands` or `{Entity}Queries`) and a shared
+`*validator.Validate`. The handler never sees `*app.App` — it only knows
+about the domain interface. Routes are registered per-entity from the
+composition root via `commands.Setup{Entity}Routes(mux, cmds, validator)`.
+
+```go
+type bookHandler struct {
+    commands book.BookCommands       // domain interface, not *app.App
+    validator *validator.Validate
+}
+
+func SetupBookRoutes(r *mux.Router, cmds book.BookCommands, v *validator.Validate) {
+    h := &bookHandler{commands: cmds, validator: v}
+    r.Handle("/api/v1/projects/{projectID}/books", http.HandlerFunc(h.create)).Methods(http.MethodPost)
+}
+```
+
+This keeps the inbound layer decoupled from the app layer. The composition
+root (wire files) passes `*app.App` to these functions, and Go's structural
+typing satisfies the interface automatically.
+
+### Domain entities are opaque
+
+Entity structs have **unexported fields** with getters and setters:
+
+```go
+type Order struct {
+    id        OrderID
+    status    OrderStatus
+    createdAt time.Time
+}
+
+func (o *Order) ID() OrderID          { return o.id }
+func (o *Order) SetStatus(s OrderStatus) error { ... } // validates
+func NewOrder(...) (*Order, error)     { ... }          // validates
+func ReconstituteOrder(...) *Order     { ... }          // DB hydration, no validation
+```
+
+- `New*` constructors validate invariants and return `(*T, error)`.
+- `Set*` methods validate and return `error` (domain errors).
+- `Reconstitute*` functions are for adapter-level hydration from DB rows —
+  they skip validation because the data was already valid when persisted.
+
+This keeps all business rules in the domain. No adapter can create an entity
+in an invalid state.
+
+### Repository scoping (IDOR protection)
+
+Every repository method takes `ProjectID` as its first parameter after
+`context`:
+
+```go
+FindByID(ctx context.Context, projectID ProjectID, id EntityID) (*Entity, error)
+```
+
+This makes tenant isolation impossible to forget. The `app/` layer extracts
+`actor.ProjectID()` and passes it down. SQL queries always include
+`WHERE project_id = $1`. There is no "get all across projects" method —
+by design.
+
+### Repository adapter pattern (pgx)
+
+Repository adapters use a `DBTX` interface that abstracts `pgxpool.Pool` and
+`pgx.Tx`, enabling both standalone and transactional usage (via UnitOfWork):
+
+```go
+type DBTX interface {
+    QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+    Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+    Exec(ctx context.Context, sql string, args ...any) (pgx.CommandTag, error)
+}
+```
+
+Each CRUD method follows a consistent pattern:
+
+- **Create** — `INSERT` with numbered placeholders (`$1, $2, ...`), passes
+  `item.ID()`, `projectID`, `item.CreatedAt()`, `item.UpdatedAt()`.
+- **FindByID** — `SELECT ... WHERE id = $1 AND project_id = $2`. Maps
+  `pgx.ErrNoRows` to `domain.Err{Entity}NotFound`. Rebuilds the entity via
+  `domain.Reconstitute{Entity}()`.
+- **List** — fetches `limit+1` rows to detect next page existence.
+  Cursor-based pagination using `id > $cursor ORDER BY id ASC`.
+- **Update** — `UPDATE ... WHERE id = $1 AND project_id = $2`. Returns
+  `Err{Entity}NotFound` if `RowsAffected() == 0`.
+- **Delete** — `DELETE ... WHERE id = $1 AND project_id = $2`. Same
+  not-found check via `RowsAffected()`.
+
+To customize for a specific entity, add columns to the SQL statements and
+corresponding scan variables / `Reconstitute` parameters. The base pattern
+handles error mapping, pagination, and IDOR scoping.
+
+### Consumer handlers depend on usecases, not app
+
+Inbound consumers (Kafka, SQS, etc.) depend on usecase interfaces
+(`{Entity}Commands`), not on `*app.App` directly. This is the same pattern
+as HTTP and gRPC handlers:
+
+```go
+type orderConsumer struct {
+    commands order.OrderCommands
+}
+```
+
+The consumer deserializes `[]byte` into a typed event struct from
+`pkg/{context}/events/v1/`, then calls the usecase interface. Deserialization
+is the adapter's job, not the domain's.
+
+### Publisher dual-write warning
+
+Publishers (`domain/publishers/`) are outbound ports. The adapter calls the
+broker directly. But `repo.Create()` + `publisher.Publish()` is **not
+atomic** — if the broker fails after DB commit, the event is lost. For
+exactly-once semantics, implement the transactional outbox pattern: write
+events to an outbox table inside the same UoW transaction, then relay them
+via a separate worker.
+
+### `shared/` for cross-cutting HTTP concerns
+
+`inbound/http/shared/` contains helpers used by both commands and queries:
+
+- `ActorFromRequest` — extracts Actor from headers/tokens
+- `WriteErrorJSON` — consistent error response format
+- `HandleHealthz` / `HandleReadyz` — liveness and readiness probes
+- Middleware: `Chain`, `Recover`, `RequestID`, `RequestLogger`, `TraceContext`
+
+This avoids circular imports (commands can't import the parent http package)
+and keeps protocol-specific glue out of the domain.
+
+### go-arch-lint enforcement
+
+`.go-arch-lint.yml` enforces the dependency graph at CI time. The linter
+runs from the repository root (`workdir: .`) so that `cmd/` and `pkg/` are
+also in scope. Test files (`*_test.go`) are excluded via `excludeFiles`.
+
+| Component | May depend on |
+|-----------|--------------|
+| `domain` | nothing |
+| `app` | `domain` |
+| `outbound` | `domain` |
+| `inbound` | `domain`, `pkg` |
+| `composition` (`init.go`, `wire_*.go`) | everything except `cmd` |
+| `cmd` | `composition`, `config`, `infrastructure`, `pkg` |
+| `config` | nothing |
+| `infrastructure` | nothing |
+| `pkg` | nothing |
+
+`domain` is a `commonComponent` — every other component may import it without
+declaring it explicitly.
+
+**`inbound` does NOT depend on `app`** — this is intentional. HTTP and gRPC
+handlers receive usecase interfaces (`{Entity}Commands`, `{Entity}Queries`)
+from the domain layer, not `*app.App`. The composition root (wire files)
+bridges the gap by passing the App (which implements these interfaces) to the
+handler setup functions.
+
+**`outbound` does NOT depend on `pkg`** — outbound adapters (repositories,
+publishers) depend only on domain types. If a publisher needs to serialize
+events into a wire format, it imports from `domain/`, not from `pkg/events/`.
+
+`cmd/` depends on `composition` (the package containing `init.go` and
+`wire_*.go`), context config, and infrastructure — but never reaches into
+`domain`, `app`, `inbound`, or `outbound` directly.

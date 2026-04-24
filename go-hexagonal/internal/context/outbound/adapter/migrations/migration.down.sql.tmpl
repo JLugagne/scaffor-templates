@@ -1,0 +1,8 @@
+-- {{ .MigrationNumber }}_{{ .MigrationSlug }}.down.sql
+-- Rollback for {{ .MigrationNumber }}_{{ .MigrationSlug }}.up.sql
+
+-- TODO(scaffolding): write the exact inverse of the .up.sql for {{ .MigrationSlug }}.
+-- Required before `migrate down` can unwind this step — migrate refuses to rollback
+-- unknown migrations, and test harnesses rely on a clean reset between runs.
+-- Order matters: drop indexes before tables, drop child tables before parents, use
+-- DROP ... IF EXISTS so partially-applied migrations can still be rolled back.
