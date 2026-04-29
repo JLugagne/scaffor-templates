@@ -11,27 +11,15 @@ commands:
   # BOOTSTRAP — one-time project initialization
   # ──────────────────────────────────────────────
   - command: bootstrap
-    description: Scaffold a complete hexagonal Go project from scratch
+    description: Scaffold project-level infrastructure and the first bounded context
     variables:
       - key: AppName
         description: Application/project name (lowercase, used for directories and package names)
       - key: ModulePath
         description: Go module path (e.g. github.com/org/repo)
       - key: Context
-        description: Bounded context name (e.g. server, billing, auth)
+        description: First bounded context name (e.g. server, billing, auth). Use add_context to add more later.
     files:
-      - source: cmd/context/main.go.tmpl
-        destination: cmd/{{ .Context }}/main.go
-      - source: internal/context/init.go.tmpl
-        destination: internal/{{ .Context }}/init.go
-      - source: internal/context/domain/errors.go.tmpl
-        destination: internal/{{ .Context }}/domain/errors.go
-      - source: internal/context/domain/types.go.tmpl
-        destination: internal/{{ .Context }}/domain/types.go
-      - source: internal/context/domain/query.go.tmpl
-        destination: internal/{{ .Context }}/domain/query.go
-      - source: internal/context/domain/services/doc.go.tmpl
-        destination: internal/{{ .Context }}/domain/services/doc.go
       - source: internal/pkg/config/config.go.tmpl
         destination: internal/pkg/config/config.go
       - source: internal/pkg/infrastructure/healthcheck.go.tmpl
@@ -40,36 +28,6 @@ commands:
         destination: internal/pkg/infrastructure/checkers.go
       - source: internal/pkg/infrastructure/otel.go.tmpl
         destination: internal/pkg/infrastructure/otel.go
-      - source: internal/context/config/config.go.tmpl
-        destination: internal/{{ .Context }}/config/config.go
-      - source: internal/context/app/config.go.tmpl
-        destination: internal/{{ .Context }}/app/config.go
-      - source: internal/context/inbound/http/init.go.tmpl
-        destination: internal/{{ .Context }}/inbound/http/init.go
-      - source: internal/context/domain/actor.go.tmpl
-        destination: internal/{{ .Context }}/domain/actor.go
-      - source: internal/context/inbound/http/shared/errors.go.tmpl
-        destination: internal/{{ .Context }}/inbound/http/shared/errors.go
-      - source: internal/context/inbound/http/shared/actor.go.tmpl
-        destination: internal/{{ .Context }}/inbound/http/shared/actor.go
-      - source: internal/context/inbound/http/shared/health.go.tmpl
-        destination: internal/{{ .Context }}/inbound/http/shared/health.go
-      - source: internal/context/inbound/http/shared/middleware.go.tmpl
-        destination: internal/{{ .Context }}/inbound/http/shared/middleware.go
-      - source: internal/context/inbound/grpc/actor.go.tmpl
-        destination: internal/{{ .Context }}/inbound/grpc/actor.go
-      - source: internal/context/inbound/http/commands/init.go.tmpl
-        destination: internal/{{ .Context }}/inbound/http/commands/init.go
-      - source: internal/context/inbound/http/queries/init.go.tmpl
-        destination: internal/{{ .Context }}/inbound/http/queries/init.go
-      - source: pkg/context/http/v1/types.go.tmpl
-        destination: pkg/{{ .Context }}/http/v1/types.go
-      - source: pkg/context/events/v1/consumed.go.tmpl
-        destination: pkg/{{ .Context }}/events/v1/consumed.go
-      - source: pkg/context/events/v1/emitted.go.tmpl
-        destination: pkg/{{ .Context }}/events/v1/emitted.go
-      - source: tests/e2e-api/setup_test.go.tmpl
-        destination: tests/e2e-api/setup_test.go
       - source: go.mod.tmpl
         destination: go.mod
       - source: Makefile.tmpl
@@ -88,35 +46,25 @@ commands:
         destination: README.md
       - source: ARCHITECTURE.md.tmpl
         destination: ARCHITECTURE.md
+    post_commands:
+      - add_context
     shell_commands:
       - command: go mod tidy
     hint: |
-      Project {{ .AppName }} bootstrapped with context {{ .Context }}.
+      Project {{ .AppName }} bootstrapped with first context {{ .Context }}.
 
-      Created:
-        cmd/{{ .Context }}/main.go                                     — entry point (creates backends, health, graceful shutdown)
+      Project-level files created:
         internal/pkg/config/config.go                                  — global infra config (server, postgres, logger, otel)
         internal/pkg/infrastructure/healthcheck.go                     — /healthz + /readyz with composable checkers
         internal/pkg/infrastructure/checkers.go                        — Postgres(), Redis(), Named() health checkers
-        internal/{{ .Context }}/init.go                                — composition root (receives Backends, wires DI)
-        internal/{{ .Context }}/config/config.go                       — context-specific business config
-        internal/{{ .Context }}/domain/errors.go                       — domain error pattern
-        internal/{{ .Context }}/domain/types.go                        — typed IDs (ProjectID)
-        internal/{{ .Context }}/domain/actor.go                        — Actor type (authenticated identity)
-        internal/{{ .Context }}/domain/query.go                        — ListParams + ListResult (cursor pagination)
-        internal/{{ .Context }}/domain/services/doc.go                 — pure domain logic placeholder
-        internal/{{ .Context }}/app/config.go                          — app service with DI
-        internal/{{ .Context }}/inbound/http/init.go                   — shared middleware setup
-        internal/{{ .Context }}/inbound/http/shared/                   — errors, actor, middleware
-        internal/{{ .Context }}/inbound/http/commands/init.go          — shared validator factory
-        internal/{{ .Context }}/inbound/http/queries/init.go           — shared validator factory
-        internal/{{ .Context }}/inbound/grpc/actor.go                  — ActorFromContext helper
-        pkg/{{ .Context }}/http/v1/                                    — public HTTP types (requests, responses)
-        pkg/{{ .Context }}/events/v1/                                  — public event types (consumed, emitted)
-        tests/e2e-api/setup_test.go                                    — e2e helpers (doGet, doPost, etc.)
+        internal/pkg/infrastructure/otel.go                            — OpenTelemetry tracer init
         ARCHITECTURE.md                                                — design decisions and rationale
         .go-arch-lint.yml, .gitignore, README.md                       — project config
         go.mod, Makefile, Dockerfile, docker-compose.yml, CI           — build infrastructure
+
+      Bounded context {{ .Context }} scaffolded via add_context post-command.
+      To add another bounded context later (multi-context project):
+        scaffor execute go-hexagonal add_context --set AppName={{ .AppName }} --set ModulePath={{ .ModulePath }} --set Context=<other>
 
       Architecture (startup sequence):
         1. main.go loads config, creates infra backends (pgxpool, kafka, ...)
@@ -167,6 +115,135 @@ commands:
       to see the variables and files for each. Manual coding (Write/Edit) should
       be the exception, used only for business logic inside templates, never to
       replace a scaffor command that exists for the structural work.
+
+  # ──────────────────────────────────────────────
+  # ADD_CONTEXT — scaffold a new bounded context
+  # ──────────────────────────────────────────────
+  - command: add_context
+    description: Scaffold a new bounded context (domain, app, inbound, outbound shells, cmd entry point, public types)
+    variables:
+      - key: AppName
+        description: Application/project name (lowercase). Used in cmd/<context>/main.go service identifiers.
+      - key: ModulePath
+        description: Go module path (e.g. github.com/org/repo)
+      - key: Context
+        description: Bounded context name (e.g. server, billing, auth)
+    files:
+      - source: cmd/context/main.go.tmpl
+        destination: cmd/{{ .Context }}/main.go
+      - source: internal/context/init.go.tmpl
+        destination: internal/{{ .Context }}/init.go
+      - source: internal/context/config/config.go.tmpl
+        destination: internal/{{ .Context }}/config/config.go
+      - source: internal/context/domain/errors.go.tmpl
+        destination: internal/{{ .Context }}/domain/errors.go
+      - source: internal/context/domain/types.go.tmpl
+        destination: internal/{{ .Context }}/domain/types.go
+      - source: internal/context/domain/query.go.tmpl
+        destination: internal/{{ .Context }}/domain/query.go
+      - source: internal/context/domain/actor.go.tmpl
+        destination: internal/{{ .Context }}/domain/actor.go
+      - source: internal/context/domain/services/doc.go.tmpl
+        destination: internal/{{ .Context }}/domain/services/doc.go
+      - source: internal/context/app/config.go.tmpl
+        destination: internal/{{ .Context }}/app/config.go
+      - source: pkg/context/events/v1/consumed.go.tmpl
+        destination: pkg/{{ .Context }}/events/v1/consumed.go
+      - source: pkg/context/events/v1/emitted.go.tmpl
+        destination: pkg/{{ .Context }}/events/v1/emitted.go
+      - source: tests/e2e-api/setup_test.go.tmpl
+        destination: tests/e2e-api/{{ .Context }}/setup_test.go
+    hint: |
+      Bounded context {{ .Context }} scaffolded.
+
+      Created:
+        cmd/{{ .Context }}/main.go                                     — entry point (creates backends, health, graceful shutdown)
+        internal/{{ .Context }}/init.go                                — composition root (receives Backends, wires DI)
+        internal/{{ .Context }}/config/config.go                       — context-specific business config
+        internal/{{ .Context }}/domain/errors.go                       — domain error pattern
+        internal/{{ .Context }}/domain/types.go                        — typed IDs
+        internal/{{ .Context }}/domain/query.go                        — ListParams + ListResult (cursor pagination)
+        internal/{{ .Context }}/domain/actor.go                        — Actor type (authenticated identity)
+        internal/{{ .Context }}/domain/services/doc.go                 — pure domain logic placeholder
+        internal/{{ .Context }}/app/config.go                          — app service with DI
+        pkg/{{ .Context }}/events/v1/                                  — public event types (consumed, emitted)
+        tests/e2e-api/{{ .Context }}/setup_test.go                     — e2e helpers (doGet, doPost, etc.) for this context
+
+      NOTE: inbound transports are NOT scaffolded automatically. The generated
+      cmd/{{ .Context }}/main.go and internal/{{ .Context }}/init.go reference the HTTP
+      inbound layer — you must add at least the HTTP transport for the context to
+      compile, or strip the http imports from init.go/main.go manually if you only
+      want gRPC.
+
+      NEXT STEPS:
+        1. Add the HTTP inbound transport (routes, middleware, shared helpers, public types):
+           scaffor execute go-hexagonal add_inbound_http --set Context={{ .Context }} --set ModulePath={{ .ModulePath }}
+        2. (Optional) Add the gRPC inbound transport:
+           scaffor execute go-hexagonal add_inbound_grpc --set Context={{ .Context }} --set ModulePath={{ .ModulePath }}
+        3. Add context-specific settings to internal/{{ .Context }}/config/config.go
+        4. Add your first entity:
+           scaffor execute go-hexagonal add_entity --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity=YourEntity --set Adapter=pg
+
+  # ──────────────────────────────────────────────
+  # INBOUND TRANSPORTS — HTTP and gRPC scaffolding
+  # ──────────────────────────────────────────────
+  - command: add_inbound_http
+    description: Scaffold the HTTP inbound transport for a context (router init, shared middleware, commands/queries init, public HTTP types)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+    files:
+      - source: internal/context/inbound/http/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/init.go
+      - source: internal/context/inbound/http/shared/errors.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/errors.go
+      - source: internal/context/inbound/http/shared/actor.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/actor.go
+      - source: internal/context/inbound/http/shared/health.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/health.go
+      - source: internal/context/inbound/http/shared/middleware.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/middleware.go
+      - source: internal/context/inbound/http/commands/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/commands/init.go
+      - source: internal/context/inbound/http/queries/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/queries/init.go
+      - source: pkg/context/http/v1/types.go.tmpl
+        destination: pkg/{{ .Context }}/http/v1/types.go
+    hint: |
+      HTTP inbound transport added to {{ .Context }}.
+
+      Created:
+        internal/{{ .Context }}/inbound/http/init.go                   — shared middleware setup, router wiring
+        internal/{{ .Context }}/inbound/http/shared/                   — errors, actor, middleware, health
+        internal/{{ .Context }}/inbound/http/commands/init.go          — shared validator factory (commands)
+        internal/{{ .Context }}/inbound/http/queries/init.go           — shared validator factory (queries)
+        pkg/{{ .Context }}/http/v1/types.go                            — public HTTP types (requests, responses)
+
+      NEXT STEPS:
+        - Per-entity HTTP handlers + converters: add_http_handler (or add_http_commands / add_http_queries / add_http_converter individually)
+        - Non-CRUD state transitions: add_http_action
+
+  - command: add_inbound_grpc
+    description: Scaffold the gRPC inbound transport for a context (ActorFromContext helper)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+    files:
+      - source: internal/context/inbound/grpc/actor.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/actor.go
+    hint: |
+      gRPC inbound transport added to {{ .Context }}.
+
+      Created:
+        internal/{{ .Context }}/inbound/grpc/actor.go                  — ActorFromContext helper
+
+      NEXT STEPS:
+        - Add the proto file:        add_grpc_proto
+        - Per-entity gRPC handlers:  add_grpc_handler (or add_grpc_commands / add_grpc_queries / add_grpc_converter)
 
   # ──────────────────────────────────────────────
   # DOMAIN LAYER — atomic domain additions
@@ -1256,17 +1333,20 @@ commands:
         description: Migration number with leading zeros (e.g. 001, 002)
       - key: MigrationSlug
         description: Migration description slug (e.g. create_projects, add_notification_table)
+      - key: Destination
+        description: "Override the migration directory (e.g. cmd/db-migrate/migrations). Defaults to internal/<Context>/outbound/<Adapter>/migrations when omitted."
+        optional: true
     files:
       - source: internal/context/outbound/adapter/migrations/migration.up.sql.tmpl
-        destination: internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations/{{ .MigrationNumber }}_{{ .MigrationSlug }}.up.sql
+        destination: "{{ if .Destination }}{{ .Destination }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.up.sql"
       - source: internal/context/outbound/adapter/migrations/migration.down.sql.tmpl
-        destination: internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations/{{ .MigrationNumber }}_{{ .MigrationSlug }}.down.sql
+        destination: "{{ if .Destination }}{{ .Destination }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.down.sql"
     hint: |
       Migration {{ .MigrationNumber }}_{{ .MigrationSlug }} added.
 
       Created:
-        internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations/{{ .MigrationNumber }}_{{ .MigrationSlug }}.up.sql
-        internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations/{{ .MigrationNumber }}_{{ .MigrationSlug }}.down.sql
+        {{ if .Destination }}{{ .Destination }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.up.sql
+        {{ if .Destination }}{{ .Destination }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.down.sql
 
       NEXT STEPS:
         1. Write the CREATE/ALTER statements in the .up.sql file
@@ -1323,6 +1403,9 @@ commands:
         description: Go module path
       - key: Binary
         description: Binary name (e.g. worker, migrator, consumer)
+      - key: NoContext
+        description: "Set to \"true\" to generate a minimal main.go with no bounded-context import (e.g. for cmd/db-migrate, cmd/nats-setup). Omit or set to \"false\" to reuse internal/<Context>/config."
+        optional: true
     files:
       - source: cmd/binary/main.go.tmpl
         destination: cmd/{{ .Binary }}/main.go
@@ -1330,12 +1413,17 @@ commands:
       Binary {{ .Binary }} added.
 
       Created:
-        cmd/{{ .Binary }}/main.go — entry point reusing {{ .Context }} bounded context
+        cmd/{{ .Binary }}/main.go — {{ if eq .NoContext "true" }}standalone entry point (no bounded-context import){{ else }}entry point reusing {{ .Context }} bounded context{{ end }}
 
       This binary has no HTTP/gRPC server — it's an empty entry point for you to wire.
       NEXT STEPS:
+        {{ if eq .NoContext "true" -}}
+        1. Implement the {{ .Binary }} logic directly in main.go (no context DI needed)
+        2. Build: go build ./cmd/{{ .Binary }}
+        {{- else -}}
         1. Wire dependencies from internal/{{ .Context }}/ as needed
         2. Build: go build ./cmd/{{ .Binary }}
+        {{- end }}
 
   # ──────────────────────────────────────────────
   # SHARED PACKAGE — utility library under internal/pkg/
@@ -1430,6 +1518,32 @@ commands:
             -i pgRepositories.{{ .Entity }}s \
             --content 'func (r *pgRepositories) {{ .Entity }}s() {{ .Entity | lower }}.{{ .Entity }}Repository { return New{{ .Entity }}RepositoryTx(r.tx) }'
         Also add the method to the domain Repositories interface in domain/uow/uow.go.
+
+test:
+  - command: add_migration
+    params:
+      Context: catalog
+      Adapter: pg
+      MigrationNumber: "001"
+      MigrationSlug: create_products
+  - command: add_migration
+    params:
+      Context: catalog
+      Adapter: pg
+      MigrationNumber: "002"
+      MigrationSlug: add_stock_column
+      Destination: cmd/db-migrate/migrations
+  - command: add_grpc_proto
+    params:
+      Context: catalog
+      ModulePath: github.com/example/myapp
+
+validate:
+  - "test -f internal/catalog/outbound/pg/migrations/001_create_products.up.sql"
+  - "test -f internal/catalog/outbound/pg/migrations/001_create_products.down.sql"
+  - "test -f cmd/db-migrate/migrations/002_add_stock_column.up.sql"
+  - "test -f cmd/db-migrate/migrations/002_add_stock_column.down.sql"
+  - "test -f pkg/catalog/grpc/proto/catalog.proto"
 
 shell_commands:
   - command: "goimports -w {{ .Files }}"
