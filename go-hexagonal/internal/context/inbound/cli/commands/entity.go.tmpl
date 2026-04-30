@@ -1,0 +1,101 @@
+package commands
+
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc"
+	v1 "{{ .ModulePath }}/pkg/{{ .Context }}/http/v1"
+)
+
+// {{ .Entity | lower }}Service combines Commands and Queries for handlers that need
+// read-before-write (e.g. update: fetch current state, apply patch, save).
+// The *app.App passed from the entry point satisfies both interfaces.
+type {{ .Entity | lower }}Service interface {
+	{{ .Entity | lower }}uc.{{ .Entity }}Commands
+	{{ .Entity | lower }}uc.{{ .Entity }}Queries
+}
+
+type {{ .Entity | lower }}Handler struct {
+	svc {{ .Entity | lower }}Service
+}
+
+// Setup{{ .Entity }}Cmds registers CLI command sub-commands for {{ .Entity }} under the given root.
+// Called from the CLI entry point (cmd/{{ .Context }}-cli/main.go).
+func Setup{{ .Entity }}Cmds(root *cobra.Command, svc {{ .Entity | lower }}Service) {
+	h := &{{ .Entity | lower }}Handler{svc: svc}
+
+	group := &cobra.Command{
+		Use:   "{{ .Entity | lower }}",
+		Short: "Manage {{ .Entity | lower }}s (create, update, delete)",
+	}
+	group.AddCommand(h.createCmd())
+	group.AddCommand(h.updateCmd())
+	group.AddCommand(h.deleteCmd())
+
+	root.AddCommand(group)
+}
+
+func (h *{{ .Entity | lower }}Handler) createCmd() *cobra.Command {
+	var req v1.Create{{ .Entity }}Request
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new {{ .Entity | lower }}",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = req
+			// TODO(scaffolding): convert req into the domain-type argument list expected by
+			// h.svc.Create{{ .Entity }} (use converters.To{{ .Entity }}Domain), call the usecase
+			// with (cmd.Context(), ...), then output via shared.WriteJSON(converters.ToPublic{{ .Entity }}(created)).
+			// Map domain errors directly — cobra prints them to stderr automatically.
+			// Required before `{{ .Entity | lower }} create` returns anything other than a "not implemented" error.
+			return fmt.Errorf("not implemented")
+		},
+	}
+	// TODO(scaffolding): bind cobra flags to req fields.
+	// Example: cmd.Flags().StringVar(&req.Name, "name", "", "{{ .Entity }} name (required)")
+	//          cmd.MarkFlagRequired("name")
+	_ = req
+	return cmd
+}
+
+func (h *{{ .Entity | lower }}Handler) updateCmd() *cobra.Command {
+	var req v1.Update{{ .Entity }}Request
+	cmd := &cobra.Command{
+		Use:   "update <id>",
+		Short: "Update an existing {{ .Entity | lower }}",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = req
+			// TODO(scaffolding): implement read-before-write update pattern.
+			//   id := domain.{{ .Entity }}ID(args[0])
+			//   item, err := h.svc.Get{{ .Entity }}ByID(cmd.Context(), id)
+			//   if err != nil { return err }
+			//   // apply only the fields present in req via domain setters:
+			//   if err := item.SetName(req.Name); err != nil { return err }
+			//   updated, err := h.svc.Update{{ .Entity }}(cmd.Context(), item)
+			//   if err != nil { return err }
+			//   return shared.WriteJSON(converters.ToPublic{{ .Entity }}(updated))
+			return fmt.Errorf("not implemented")
+		},
+	}
+	// TODO(scaffolding): bind cobra flags to req fields.
+	_ = req
+	return cmd
+}
+
+func (h *{{ .Entity | lower }}Handler) deleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <id>",
+		Short: "Delete a {{ .Entity | lower }}",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// TODO(scaffolding): implement delete.
+			//   id := domain.{{ .Entity }}ID(args[0])
+			//   if err := h.svc.Delete{{ .Entity }}(cmd.Context(), id); err != nil { return err }
+			//   shared.WriteDeleted(args[0])
+			//   return nil
+			return fmt.Errorf("not implemented")
+		},
+	}
+}

@@ -1,0 +1,14 @@
+package cli
+
+import "github.com/spf13/cobra"
+
+// New returns the root cobra.Command for the {{ .Context }} CLI.
+// Entity sub-commands are registered by calling Setup*Cmds functions
+// (from inbound/cli/commands and inbound/cli/queries) in the entry point.
+func New() *cobra.Command {
+	return &cobra.Command{
+		Use:          "{{ .Context }}",
+		Short:        "{{ .Context }} management CLI",
+		SilenceUsage: true,
+	}
+}

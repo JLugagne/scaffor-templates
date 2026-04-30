@@ -1,0 +1,63 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"os"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/app"
+	appconfig "{{ .ModulePath }}/internal/{{ .Context }}/config"
+	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/cli"
+	"{{ .ModulePath }}/internal/pkg/config"
+)
+
+func main() {
+	ctx := context.Background()
+
+	cfg, err := config.Load("{{ .AppName }}")
+	if err != nil {
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	appCfg, err := appconfig.Load()
+	if err != nil {
+		slog.Error("failed to load app config", "error", err)
+		os.Exit(1)
+	}
+	_ = appCfg
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+
+	pool, err := pgxpool.New(ctx, cfg.Postgres.URL)
+	if err != nil {
+		slog.Error("failed to create postgres pool", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	// TODO(scaffolding): run migrations before wiring entity repos (same pattern as
+	// internal/{{ .Context }}/init.go Setup — without it, every query fails on a fresh DB).
+
+	a := app.New(slog.Default())
+
+	// TODO(scaffolding): wire entity repos and CLI sub-commands.
+	// For each entity scaffolded with add_cli_commands / add_cli_queries:
+	//   import pgadapter "{{ .ModulePath }}/internal/{{ .Context }}/outbound/pg"
+	//   import clicommands "{{ .ModulePath }}/internal/{{ .Context }}/inbound/cli/commands"
+	//   import cliqueries  "{{ .ModulePath }}/internal/{{ .Context }}/inbound/cli/queries"
+	//
+	//   yourEntityRepo := pgadapter.NewYourEntityRepository(pool)
+	//   a.SetYourEntityRepo(yourEntityRepo)
+	//   clicommands.SetupYourEntityCmds(root, a)
+	//   cliqueries.SetupYourEntityQueries(root, a)
+
+	root := cli.New()
+
+	if err := root.ExecuteContext(ctx); err != nil {
+		os.Exit(1)
+	}
+}

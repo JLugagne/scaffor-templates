@@ -245,6 +245,40 @@ commands:
         - Add the proto file:        add_grpc_proto
         - Per-entity gRPC handlers:  add_grpc_handler (or add_grpc_commands / add_grpc_queries / add_grpc_converter)
 
+  - command: add_inbound_cli
+    description: Scaffold the CLI inbound transport for a context using Cobra (root command, output helper, CLI binary entry point)
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: AppName
+        description: Application/project name (lowercase). Used in the CLI binary config loading.
+    files:
+      - source: internal/context/inbound/cli/root.go.tmpl
+        destination: internal/{{ .Context }}/inbound/cli/root.go
+      - source: internal/context/inbound/cli/shared/output.go.tmpl
+        destination: internal/{{ .Context }}/inbound/cli/shared/output.go
+      - source: cmd/context-cli/main.go.tmpl
+        destination: cmd/{{ .Context }}-cli/main.go
+    hint: |
+      CLI inbound transport added to {{ .Context }}.
+
+      Created:
+        internal/{{ .Context }}/inbound/cli/root.go                       — cobra root command (New() returns *cobra.Command)
+        internal/{{ .Context }}/inbound/cli/shared/output.go              — WriteJSON + WriteDeleted helpers
+        cmd/{{ .Context }}-cli/main.go                                    — CLI binary entry point (load config, wire repos, execute cobra)
+
+      DEPENDENCY:
+        Add cobra to go.mod:
+          go get github.com/spf13/cobra@latest
+
+      NEXT STEPS:
+        - Per-entity CLI handlers (commands + queries):
+            scaffor execute go-hexagonal add_cli_handler --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity=YourEntity
+        - After adding entities, wire them in cmd/{{ .Context }}-cli/main.go (see TODO comments)
+        - Build: go build ./cmd/{{ .Context }}-cli
+
   # ──────────────────────────────────────────────
   # DOMAIN LAYER — atomic domain additions
   # ──────────────────────────────────────────────
@@ -1040,6 +1074,81 @@ commands:
 
       NEXT STEP — generate Go code:
         protoc --go_out=. --go-grpc_out=. pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
+
+  # ──────────────────────────────────────────────
+  # CLI INBOUND — cobra command handlers
+  # ──────────────────────────────────────────────
+  - command: add_cli_commands
+    description: Add CLI command handlers (write operations) for an entity using Cobra
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/inbound/cli/commands/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/cli/commands/{{ .Entity | lower }}.go
+    hint: |
+      CLI commands for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/inbound/cli/commands/{{ .Entity | lower }}.go — create, update, delete cobra sub-commands
+
+      NEXT STEPS:
+        1. Bind cobra flags to request fields inside createCmd() and updateCmd() (see TODO comments)
+        2. Implement handler logic (converters + usecase calls) in each RunE
+        3. Wire in cmd/{{ .Context }}-cli/main.go:
+             clicommands.Setup{{ .Entity }}Cmds(root, a)
+        4. Test: go run ./cmd/{{ .Context }}-cli {{ .Entity | lower }} create --help
+
+  - command: add_cli_queries
+    description: Add CLI query handlers (read operations) for an entity using Cobra
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/inbound/cli/queries/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/cli/queries/{{ .Entity | lower }}.go
+    hint: |
+      CLI queries for {{ .Entity }} added.
+
+      Created:
+        internal/{{ .Context }}/inbound/cli/queries/{{ .Entity | lower }}.go — get, list cobra sub-commands
+
+      NEXT STEPS:
+        1. Implement handler logic (converters + usecase calls) in each RunE
+        2. Wire in cmd/{{ .Context }}-cli/main.go:
+             cliqueries.Setup{{ .Entity }}Queries(root, a)
+        3. Test: go run ./cmd/{{ .Context }}-cli {{ .Entity | lower }} list --help
+
+      NOTE: Setup{{ .Entity }}Queries merges into the existing "{{ .Entity | lower }}" sub-command group
+      if Setup{{ .Entity }}Cmds already added it — no duplicate groups.
+
+  - command: add_cli_handler
+    description: Add both CLI command and query handlers for an entity
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files: []
+    post_commands:
+      - add_cli_commands
+      - add_cli_queries
+    hint: |
+      Full CLI handler for {{ .Entity }} added (commands + queries).
+
+      Wire both in cmd/{{ .Context }}-cli/main.go (see TODO in that file):
+        clicommands.Setup{{ .Entity }}Cmds(root, a)
+        cliqueries.Setup{{ .Entity }}Queries(root, a)
 
   # ──────────────────────────────────────────────
   # DOMAIN SERVICES — pure domain logic (no I/O)

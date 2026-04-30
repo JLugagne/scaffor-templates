@@ -1,0 +1,80 @@
+package queries
+
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc"
+)
+
+type {{ .Entity | lower }}Handler struct {
+	queries {{ .Entity | lower }}uc.{{ .Entity }}Queries
+}
+
+// Setup{{ .Entity }}Queries registers CLI query sub-commands for {{ .Entity }} under the given root.
+// Called from the CLI entry point (cmd/{{ .Context }}-cli/main.go).
+func Setup{{ .Entity }}Queries(root *cobra.Command, q {{ .Entity | lower }}uc.{{ .Entity }}Queries) {
+	h := &{{ .Entity | lower }}Handler{queries: q}
+
+	group := root.Commands()
+	var entityGroup *cobra.Command
+	for _, c := range group {
+		if c.Use == "{{ .Entity | lower }}" {
+			entityGroup = c
+			break
+		}
+	}
+	if entityGroup == nil {
+		entityGroup = &cobra.Command{
+			Use:   "{{ .Entity | lower }}",
+			Short: "Manage {{ .Entity | lower }}s",
+		}
+		root.AddCommand(entityGroup)
+	}
+
+	entityGroup.AddCommand(h.getCmd())
+	entityGroup.AddCommand(h.listCmd())
+}
+
+func (h *{{ .Entity | lower }}Handler) getCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <id>",
+		Short: "Get a {{ .Entity | lower }} by ID",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// TODO(scaffolding): implement get.
+			//   id := domain.{{ .Entity }}ID(args[0])
+			//   item, err := h.queries.Get{{ .Entity }}ByID(cmd.Context(), id)
+			//   if err != nil { return err }
+			//   return shared.WriteJSON(converters.ToPublic{{ .Entity }}(item))
+			return fmt.Errorf("not implemented")
+		},
+	}
+}
+
+func (h *{{ .Entity | lower }}Handler) listCmd() *cobra.Command {
+	var cursor string
+	var limit int
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List {{ .Entity | lower }}s",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			params := domain.ListParams{
+				Cursor: cursor,
+				Limit:  limit,
+			}
+			_ = params
+			// TODO(scaffolding): implement list.
+			//   result, err := h.queries.List{{ .Entity }}s(cmd.Context(), params)
+			//   if err != nil { return err }
+			//   return shared.WriteJSON(converters.ToPublic{{ .Entity }}List(result))
+			return fmt.Errorf("not implemented")
+		},
+	}
+	cmd.Flags().StringVar(&cursor, "cursor", "", "pagination cursor from a previous list response")
+	cmd.Flags().IntVar(&limit, "limit", 20, "maximum number of items to return")
+	return cmd
+}
