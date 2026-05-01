@@ -17,6 +17,13 @@ func {{ .Entity }}CommandsContractTesting(t *testing.T, svc {{ .Entity | lower }
 		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
 	})
 
+	t.Run("Contract: Update mutates item", func(t *testing.T) {
+		// TODO(scaffolding): create an entity, call svc.Update{{ .Entity }} with mutated
+		// fields, then read it back via a Queries call and assert the mutations stuck.
+		// Replace t.Fatal once the Update path is implemented.
+		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
+	})
+
 	t.Run("Contract: Delete removes item", func(t *testing.T) {
 		// TODO(scaffolding): create an entity, call svc.Delete{{ .Entity }}, then assert
 		// a subsequent GetByID returns Err{{ .Entity }}NotFound. Replace t.Fatal once

@@ -16,6 +16,7 @@ import (
 // (e.g. PlaceOrder, PayOrder instead of Create{{ .Entity }}, Update{{ .Entity }}).
 type {{ .Entity }}Commands interface {
 	Create{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error)
+	Update{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error)
 	Delete{{ .Entity }}(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) error
 }
 

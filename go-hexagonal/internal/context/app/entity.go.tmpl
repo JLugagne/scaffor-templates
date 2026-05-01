@@ -28,6 +28,15 @@ func (a *App) Create{{ .Entity }}(ctx context.Context, actor *domain.Actor, item
 	return item, nil
 }
 
+func (a *App) Update{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error) {
+	if err := a.{{ .Entity | lower }}Repo.Update(ctx, actor.ProjectID(), item); err != nil {
+		return nil, fmt.Errorf("update {{ .Entity | lower }}: %w", err)
+	}
+
+	a.logger.Info("updated {{ .Entity | lower }}", "id", item.ID(), "actor", actor.ID())
+	return item, nil
+}
+
 func (a *App) Get{{ .Entity }}ByID(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error) {
 	item, err := a.{{ .Entity | lower }}Repo.FindByID(ctx, actor.ProjectID(), id)
 	if err != nil {
