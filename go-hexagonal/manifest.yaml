@@ -1432,7 +1432,7 @@ commands:
   # MIGRATIONS
   # ──────────────────────────────────────────────
   - command: add_migration
-    description: Add a numbered SQL migration file pair (up + down)
+    description: Add a single-file goose SQL migration (Up + Down in one file with -- +goose pragmas)
     variables:
       - key: Context
         description: Bounded context name
@@ -1443,24 +1443,21 @@ commands:
       - key: MigrationSlug
         description: Migration description slug (e.g. create_projects, add_notification_table)
       - key: Destination
-        description: "Override the migration directory (e.g. cmd/db-migrate/migrations). Defaults to internal/<Context>/outbound/<Adapter>/migrations when omitted."
+        description: "Override the migration root directory (e.g. cmd/db-migrate/migrations). The <Context> subdir is appended automatically — the file lands at <Destination>/<Context>/<Number>_<Slug>.sql. Defaults to internal/<Context>/outbound/<Adapter>/migrations when omitted."
         optional: true
     files:
-      - source: internal/context/outbound/adapter/migrations/migration.up.sql.tmpl
-        destination: "{{ if .Destination }}{{ .Destination }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.up.sql"
-      - source: internal/context/outbound/adapter/migrations/migration.down.sql.tmpl
-        destination: "{{ if .Destination }}{{ .Destination }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.down.sql"
+      - source: internal/context/outbound/adapter/migrations/migration.sql.tmpl
+        destination: "{{ if .Destination }}{{ .Destination }}/{{ .Context }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.sql"
     hint: |
       Migration {{ .MigrationNumber }}_{{ .MigrationSlug }} added.
 
       Created:
-        {{ if .Destination }}{{ .Destination }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.up.sql
-        {{ if .Destination }}{{ .Destination }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.down.sql
+        {{ if .Destination }}{{ .Destination }}/{{ .Context }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.sql
 
       NEXT STEPS:
-        1. Write the CREATE/ALTER statements in the .up.sql file
-        2. Write the corresponding DROP/REVERT in the .down.sql file
-        3. Remember: all DDL must be idempotent (IF NOT EXISTS)
+        1. Fill in the CREATE/ALTER statements between -- +goose StatementBegin / -- +goose StatementEnd in the Up block.
+        2. Fill in the matching DROP/REVERT in the Down block, again wrapped in StatementBegin/StatementEnd.
+        3. Every statement must be idempotent (IF NOT EXISTS / IF EXISTS) so the migration is safe to re-run.
 
   # ──────────────────────────────────────────────
   # E2E TESTS
@@ -1648,10 +1645,12 @@ test:
       ModulePath: github.com/example/myapp
 
 validate:
-  - "test -f internal/catalog/outbound/pg/migrations/001_create_products.up.sql"
-  - "test -f internal/catalog/outbound/pg/migrations/001_create_products.down.sql"
-  - "test -f cmd/db-migrate/migrations/002_add_stock_column.up.sql"
-  - "test -f cmd/db-migrate/migrations/002_add_stock_column.down.sql"
+  - "test -f internal/catalog/outbound/pg/migrations/001_create_products.sql"
+  - "grep -q '^-- +goose Up$' internal/catalog/outbound/pg/migrations/001_create_products.sql"
+  - "grep -q '^-- +goose Down$' internal/catalog/outbound/pg/migrations/001_create_products.sql"
+  - "grep -q '^-- +goose StatementBegin$' internal/catalog/outbound/pg/migrations/001_create_products.sql"
+  - "test -f cmd/db-migrate/migrations/catalog/002_add_stock_column.sql"
+  - "test ! -f cmd/db-migrate/migrations/002_add_stock_column.up.sql"
   - "test -f pkg/catalog/grpc/proto/catalog.proto"
 
 shell_commands:

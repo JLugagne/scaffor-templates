@@ -1,0 +1,35 @@
+-- {{ .MigrationNumber }}_{{ .MigrationSlug }}.sql
+-- Single-file goose migration. Up and Down blocks are wrapped in
+-- StatementBegin/StatementEnd pairs so multi-statement DDL is sent as
+-- one batch to PostgreSQL.
+--
+-- ID columns convention:
+--   Domain IDs are UUIDv7 strings generated in Go (uuid.NewV7). Use the native
+--   UUID column type — PostgreSQL stores it as 16 bytes (vs 36 for TEXT) and
+--   indexes it more efficiently. Do NOT use DEFAULT gen_random_uuid() — that
+--   generates UUIDv4, which is not time-ordered. IDs must come from the domain
+--   constructor (e.g. NewBookID), never from the database.
+
+-- +goose Up
+-- +goose StatementBegin
+-- TODO(scaffolding): write the forward DDL for {{ .MigrationSlug }}.
+-- Every statement must be idempotent (IF NOT EXISTS / IF EXISTS) so re-running
+-- the migration suite on an already-migrated database is safe. Use native UUID
+-- for every id/<entity>_id column.
+--
+-- Example:
+--   CREATE TABLE IF NOT EXISTS books (
+--       id         UUID PRIMARY KEY,
+--       project_id UUID NOT NULL,
+--       created_at TIMESTAMPTZ NOT NULL,
+--       updated_at TIMESTAMPTZ NOT NULL
+--   );
+--   CREATE INDEX IF NOT EXISTS books_project_id_idx ON books (project_id);
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+-- TODO(scaffolding): write the exact inverse of the Up block for {{ .MigrationSlug }}.
+-- Order matters: drop indexes before tables, drop child tables before parents.
+-- Use DROP ... IF EXISTS so partially-applied migrations can still be rolled back.
+-- +goose StatementEnd
