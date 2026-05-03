@@ -1435,19 +1435,19 @@ commands:
     description: Scaffold per-entity typed methods on the BFF→core HTTP client + a contract test stub + the BFF wire registration
     variables:
       - key: Entity
-        description: Entity name in PascalCase (e.g. TenantSettings, Project)
+        description: Entity name in PascalCase (e.g. Book, Order)
       - key: EntitySnake
-        description: Entity name in snake_case used for filenames (e.g. tenant_settings, project)
+        description: Entity name in snake_case used for filenames (e.g. book, order_line)
       - key: Context
         description: Bounded context the entity lives in (used to import DTOs from pkg/<Context>/http/v1)
       - key: ModulePath
-        description: "Module import path (e.g. github.com/senhal-dev/senhal-core)"
+        description: "Module import path (e.g. github.com/example/myapp)"
       - key: PathParamName
         description: "Name of the path parameter the methods take (e.g. slug, id)"
       - key: RoutePathPrefix
-        description: "URL prefix before the path parameter (e.g. /api/v1/tenants for /api/v1/tenants/{slug}/settings; /api/v1/projects for /api/v1/projects/{id})"
+        description: "URL prefix before the path parameter (e.g. /api/v1/books for /api/v1/books/{id})"
       - key: RoutePathSuffix
-        description: "URL suffix after the path parameter, including any leading + concatenation. Use \"\" for none, or e.g. +\"/settings\" for sub-resource routes."
+        description: "URL suffix after the path parameter, including any leading + concatenation. Use \"\" for none, or e.g. +\"/reviews\" for sub-resource routes."
         optional: true
     files:
       - source: internal/bff/outbound/coreclient/client_entity.go.tmpl
@@ -1599,7 +1599,7 @@ commands:
     description: Add a shared utility package under internal/pkg/<Package>/ (no bounded-context layering)
     variables:
       - key: ModulePath
-        description: Go module path (e.g. github.com/senhal-dev/senhal-core)
+        description: Go module path (e.g. github.com/example/myapp)
       - key: Package
         description: Package name in lowercase, matches the directory name (e.g. semver, ratelimit, jwtblacklist)
     files:
@@ -1706,13 +1706,13 @@ test:
       ModulePath: github.com/example/myapp
   - command: add_bff_core_client
     params:
-      Entity: TenantSettings
-      EntitySnake: tenant_settings
-      Context: core
+      Entity: Book
+      EntitySnake: book
+      Context: catalog
       ModulePath: github.com/example/myapp
-      PathParamName: slug
-      RoutePathPrefix: /api/v1/tenants
-      RoutePathSuffix: +"/settings"
+      PathParamName: id
+      RoutePathPrefix: /api/v1/books
+      RoutePathSuffix: ""
 
 validate:
   - "test -f internal/catalog/outbound/pg/migrations/001_create_products.sql"
@@ -1722,11 +1722,11 @@ validate:
   - "test -f cmd/db-migrate/migrations/catalog/002_add_stock_column.sql"
   - "test ! -f cmd/db-migrate/migrations/002_add_stock_column.up.sql"
   - "test -f pkg/catalog/grpc/proto/catalog.proto"
-  - "test -f internal/bff/outbound/coreclient/client_tenant_settings.go"
-  - "test -f internal/bff/outbound/coreclient/client_tenant_settings_test.go"
-  - "test -f internal/bff/wire_tenant_settings.go"
-  - "grep -q 'GetTenantSettings' internal/bff/outbound/coreclient/client_tenant_settings.go"
-  - "grep -q 'wireTenantSettings' internal/bff/wire_tenant_settings.go"
+  - "test -f internal/bff/outbound/coreclient/client_book.go"
+  - "test -f internal/bff/outbound/coreclient/client_book_test.go"
+  - "test -f internal/bff/wire_book.go"
+  - "grep -q 'GetBook' internal/bff/outbound/coreclient/client_book.go"
+  - "grep -q 'wireBook' internal/bff/wire_book.go"
 
 shell_commands:
   - command: "goimports -w {{ .Files }}"
