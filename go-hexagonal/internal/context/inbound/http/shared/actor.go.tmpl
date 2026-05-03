@@ -10,7 +10,7 @@ import (
 
 // ActorFromRequest extracts a domain.Actor from an HTTP request.
 //
-// Default implementation: trusts X-Actor-ID, X-Project-ID, X-Roles headers.
+// Default implementation: trusts X-Actor-ID, X-Tenant-ID, X-Roles headers.
 // This is the safe default for local development and service-mesh deployments
 // (Istio, Linkerd, API gateway) where an upstream trusted component validates
 // the caller's identity before forwarding.
@@ -23,12 +23,12 @@ func ActorFromRequest(ctx context.Context, r *http.Request) (*domain.Actor, erro
 	if actorID == "" {
 		return nil, domain.ErrActorUnauthorized
 	}
-	projectID := domain.ProjectID(strings.TrimSpace(r.Header.Get("X-Project-ID")))
-	if projectID == "" {
-		return nil, domain.ErrActorProjectRequired
+	tenantID := domain.TenantID(strings.TrimSpace(r.Header.Get("X-Tenant-ID")))
+	if tenantID == "" {
+		return nil, domain.ErrActorTenantRequired
 	}
 
-	actor, err := domain.NewActor(actorID, projectID)
+	actor, err := domain.NewActor(actorID, tenantID)
 	if err != nil {
 		return nil, err
 	}

@@ -4,7 +4,7 @@ import "github.com/google/uuid"
 
 // ActorID is the typed identifier for an authenticated actor.
 //
-// Format: UUIDv7 as string — time-ordered, DB-friendly (see ProjectID doc).
+// Format: UUIDv7 as string — time-ordered, DB-friendly (see TenantID doc).
 type ActorID string
 
 // NewActorID generates a new time-ordered UUIDv7 ActorID.
@@ -15,19 +15,19 @@ func NewActorID() ActorID {
 // Domain errors for Actor — defined as package-level vars for testability
 // (tests can use errors.Is or direct comparison).
 var (
-	ErrActorNotFound        = NewError("ACTOR_NOT_FOUND", "actor not found")
-	ErrActorUnauthorized    = NewError("ACTOR_UNAUTHORIZED", "actor is not authorized")
-	ErrActorIDRequired      = NewError("ACTOR_ID_REQUIRED", "actor id is required")
-	ErrActorProjectRequired = NewError("ACTOR_PROJECT_ID_REQUIRED", "actor project id is required")
+	ErrActorNotFound       = NewError("ACTOR_NOT_FOUND", "actor not found")
+	ErrActorUnauthorized   = NewError("ACTOR_UNAUTHORIZED", "actor is not authorized")
+	ErrActorIDRequired     = NewError("ACTOR_ID_REQUIRED", "actor id is required")
+	ErrActorTenantRequired = NewError("ACTOR_TENANT_ID_REQUIRED", "actor tenant id is required")
 )
 
 // Actor represents the authenticated identity performing an action.
 // Extracted from protocol-specific sources (HTTP headers, gRPC metadata)
 // by inbound adapters and passed explicitly to app/domain — never via context.
 type Actor struct {
-	id        ActorID
-	projectID ProjectID
-	roles     []string
+	id       ActorID
+	tenantID TenantID
+	roles    []string
 	// TODO(scaffolding): add richer authorization attributes the domain will inspect —
 	// typed roles, permissions, or a scope set. Keep them unexported and expose predicate
 	// getters like Can(Permission). The default `roles []string` handles simple RBAC via
@@ -35,24 +35,24 @@ type Actor struct {
 }
 
 // NewActor creates a validated Actor.
-func NewActor(id ActorID, projectID ProjectID) (*Actor, error) {
+func NewActor(id ActorID, tenantID TenantID) (*Actor, error) {
 	if id == "" {
 		return nil, ErrActorIDRequired
 	}
-	if projectID == "" {
-		return nil, ErrActorProjectRequired
+	if tenantID == "" {
+		return nil, ErrActorTenantRequired
 	}
 	return &Actor{
-		id:        id,
-		projectID: projectID,
-		roles:     []string{},
+		id:       id,
+		tenantID: tenantID,
+		roles:    []string{},
 	}, nil
 }
 
 // --- Getters ---
 
-func (a *Actor) ID() ActorID          { return a.id }
-func (a *Actor) ProjectID() ProjectID { return a.projectID }
+func (a *Actor) ID() ActorID        { return a.id }
+func (a *Actor) TenantID() TenantID { return a.tenantID }
 
 // AddRole appends a role to the actor's role set (duplicates are allowed —
 // HasRole still reports true). Called by inbound adapters after extracting

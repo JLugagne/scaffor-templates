@@ -142,7 +142,7 @@ func doDelete(t *testing.T, url string) *Response {
 }
 
 // url builds a full URL from the test server base and a path.
-// Example: url("/api/v1/projects/%s/items/%s", projectID, itemID)
+// Example: url("/api/v1/tenants/%s/items/%s", tenantID, itemID)
 func url(path string, args ...interface{}) string {
 	if len(args) > 0 {
 		path = fmt.Sprintf(path, args...)

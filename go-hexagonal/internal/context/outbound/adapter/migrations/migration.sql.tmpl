@@ -20,11 +20,11 @@
 -- Example:
 --   CREATE TABLE IF NOT EXISTS books (
 --       id         UUID PRIMARY KEY,
---       project_id UUID NOT NULL,
+--       tenant_id  UUID NOT NULL,
 --       created_at TIMESTAMPTZ NOT NULL,
 --       updated_at TIMESTAMPTZ NOT NULL
 --   );
---   CREATE INDEX IF NOT EXISTS books_project_id_idx ON books (project_id);
+--   CREATE INDEX IF NOT EXISTS books_tenant_id_idx ON books (tenant_id);
 -- +goose StatementEnd
 
 -- +goose Down

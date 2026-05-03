@@ -36,8 +36,8 @@ var {{ .Entity | lower }}QueriesActions []{{ .Entity | lower }}QueryRegistrar
 // Called from the composition root (wire_{{ .Entity | lower }}.go).
 func Setup{{ .Entity }}Routes(r *mux.Router, q {{ .Entity | lower }}uc.{{ .Entity }}Queries, v *validator.Validate) {
 	h := &{{ .Entity | lower }}Handler{queries: q, validator: v}
-	r.HandleFunc("/api/v1/projects/{projectID}/{{ .Entity | lower }}s/{id}", h.getByID).Methods(http.MethodGet)
-	r.HandleFunc("/api/v1/projects/{projectID}/{{ .Entity | lower }}s", h.list).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}", h.getByID).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s", h.list).Methods(http.MethodGet)
 	for _, fn := range {{ .Entity | lower }}QueriesActions {
 		fn(r, h)
 	}

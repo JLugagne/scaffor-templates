@@ -44,10 +44,10 @@ var {{ .Entity | lower }}CommandsActions []{{ .Entity | lower }}ActionRegistrar
 // Called from the composition root (wire_{{ .Entity | lower }}.go).
 func Setup{{ .Entity }}Routes(r *mux.Router, svc {{ .Entity | lower }}Service, v *validator.Validate) {
 	h := &{{ .Entity | lower }}Handler{svc: svc, validator: v}
-	r.HandleFunc("/api/v1/projects/{projectID}/{{ .Entity | lower }}s", h.create).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s", h.create).Methods(http.MethodPost)
 	{{- if ne .EntityHasActions "true" }}
-	r.HandleFunc("/api/v1/projects/{projectID}/{{ .Entity | lower }}s/{id}", h.update).Methods(http.MethodPut)
-	r.HandleFunc("/api/v1/projects/{projectID}/{{ .Entity | lower }}s/{id}", h.delete).Methods(http.MethodDelete)
+	r.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}", h.update).Methods(http.MethodPut)
+	r.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}", h.delete).Methods(http.MethodDelete)
 	{{- end }}
 	for _, fn := range {{ .Entity | lower }}CommandsActions {
 		fn(r, h)

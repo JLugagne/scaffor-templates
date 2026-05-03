@@ -110,12 +110,12 @@ lives in `init.go` and companion `wire_*.go` files:
 
 ### Actor as explicit parameter
 
-`domain.Actor` represents the authenticated identity (user ID + project ID).
+`domain.Actor` represents the authenticated identity (actor ID + tenant ID).
 It is **never** stored in context. Instead it is:
 
 1. Extracted from the HTTP request (header/token) by `shared.ActorFromRequest`
 2. Passed explicitly to every usecase method: `Create(ctx, actor, ...)`
-3. Used by `app/` to get the `ProjectID` for repository scoping
+3. Used by `app/` to get the `TenantID` for repository scoping
 
 This makes authorization visible in every call chain. You can't accidentally
 bypass it by forgetting to populate the context. Tests construct an `Actor`
@@ -175,7 +175,7 @@ type bookHandler struct {
 
 func SetupBookRoutes(r *mux.Router, cmds book.BookCommands, v *validator.Validate) {
     h := &bookHandler{commands: cmds, validator: v}
-    r.Handle("/api/v1/projects/{projectID}/books", http.HandlerFunc(h.create)).Methods(http.MethodPost)
+    r.Handle("/api/v1/tenants/{tenantID}/books", http.HandlerFunc(h.create)).Methods(http.MethodPost)
 }
 ```
 
@@ -210,16 +210,16 @@ in an invalid state.
 
 ### Repository scoping (IDOR protection)
 
-Every repository method takes `ProjectID` as its first parameter after
+Every repository method takes `TenantID` as its first parameter after
 `context`:
 
 ```go
-FindByID(ctx context.Context, projectID ProjectID, id EntityID) (*Entity, error)
+FindByID(ctx context.Context, tenantID TenantID, id EntityID) (*Entity, error)
 ```
 
 This makes tenant isolation impossible to forget. The `app/` layer extracts
-`actor.ProjectID()` and passes it down. SQL queries always include
-`WHERE project_id = $1`. There is no "get all across projects" method —
+`actor.TenantID()` and passes it down. SQL queries always include
+`WHERE tenant_id = $1`. There is no "get all across tenants" method —
 by design.
 
 ### Repository adapter pattern (pgx)
@@ -238,15 +238,15 @@ type DBTX interface {
 Each CRUD method follows a consistent pattern:
 
 - **Create** — `INSERT` with numbered placeholders (`$1, $2, ...`), passes
-  `item.ID()`, `projectID`, `item.CreatedAt()`, `item.UpdatedAt()`.
-- **FindByID** — `SELECT ... WHERE id = $1 AND project_id = $2`. Maps
+  `item.ID()`, `tenantID`, `item.CreatedAt()`, `item.UpdatedAt()`.
+- **FindByID** — `SELECT ... WHERE id = $1 AND tenant_id = $2`. Maps
   `pgx.ErrNoRows` to `domain.Err{Entity}NotFound`. Rebuilds the entity via
   `domain.Reconstitute{Entity}()`.
 - **List** — fetches `limit+1` rows to detect next page existence.
   Cursor-based pagination using `id > $cursor ORDER BY id ASC`.
-- **Update** — `UPDATE ... WHERE id = $1 AND project_id = $2`. Returns
+- **Update** — `UPDATE ... WHERE id = $1 AND tenant_id = $2`. Returns
   `Err{Entity}NotFound` if `RowsAffected() == 0`.
-- **Delete** — `DELETE ... WHERE id = $1 AND project_id = $2`. Same
+- **Delete** — `DELETE ... WHERE id = $1 AND tenant_id = $2`. Same
   not-found check via `RowsAffected()`.
 
 To customize for a specific entity, add columns to the SQL statements and

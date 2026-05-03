@@ -11,7 +11,7 @@ import (
 
 func init() {
 	{{ .Entity | lower }}CommandsActions = append({{ .Entity | lower }}CommandsActions, func(r *mux.Router, h *{{ .Entity | lower }}Handler) {
-		r.HandleFunc("/api/v1/projects/{projectID}/{{ .Entity | lower }}s/{id}/{{ .Action | lower }}", h.{{ .Action | lower }}).Methods(http.MethodPost)
+		r.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}/{{ .Action | lower }}", h.{{ .Action | lower }}).Methods(http.MethodPost)
 	})
 }
 

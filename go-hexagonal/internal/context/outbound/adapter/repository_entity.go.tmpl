@@ -36,15 +36,15 @@ func New{{ .Entity }}RepositoryTx(tx pgx.Tx) *{{ .Entity | lower }}Repository {
 // Compile-time check.
 var _ {{ .Entity | lower }}repo.{{ .Entity }}Repository = (*{{ .Entity | lower }}Repository)(nil)
 
-func (r *{{ .Entity | lower }}Repository) Create(ctx context.Context, projectID domain.ProjectID, item *domain.{{ .Entity }}) error {
+func (r *{{ .Entity | lower }}Repository) Create(ctx context.Context, tenantID domain.TenantID, item *domain.{{ .Entity }}) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO {{ .Entity | lower }}s (id, project_id, created_at, updated_at)
+		`INSERT INTO {{ .Entity | lower }}s (id, tenant_id, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4)`,
 		// TODO(scaffolding): add one column per mutable entity field to both the INSERT
 		// column list and the VALUES placeholders, then append the matching item.Field()
 		// getter below. Must match the migration and the domain entity's fields exactly.
 		// Required before Create persists real data — contract tests read back what was written.
-		string(item.ID()), string(projectID), item.CreatedAt(), item.UpdatedAt(),
+		string(item.ID()), string(tenantID), item.CreatedAt(), item.UpdatedAt(),
 	)
 	if err != nil {
 		return fmt.Errorf("insert {{ .Entity | lower }}: %w", err)
@@ -52,15 +52,15 @@ func (r *{{ .Entity | lower }}Repository) Create(ctx context.Context, projectID 
 	return nil
 }
 
-func (r *{{ .Entity | lower }}Repository) FindByID(ctx context.Context, projectID domain.ProjectID, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error) {
+func (r *{{ .Entity | lower }}Repository) FindByID(ctx context.Context, tenantID domain.TenantID, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error) {
 	row := r.db.QueryRow(ctx,
 		`SELECT id, created_at, updated_at
 		 FROM {{ .Entity | lower }}s
-		 WHERE id = $1 AND project_id = $2`,
+		 WHERE id = $1 AND tenant_id = $2`,
 		// TODO(scaffolding): extend the SELECT column list to include every field
 		// Reconstitute{{ .Entity }} expects, in the SAME ORDER as the Scan below.
 		// Required before FindByID returns real data — contract tests assert field equality.
-		string(id), string(projectID),
+		string(id), string(tenantID),
 	)
 
 	var (
@@ -86,20 +86,20 @@ func (r *{{ .Entity | lower }}Repository) FindByID(ctx context.Context, projectI
 	return nil, fmt.Errorf("Reconstitute{{ .Entity }} not yet defined — implement in domain/{{ .Entity | lower }}.go")
 }
 
-func (r *{{ .Entity | lower }}Repository) List(ctx context.Context, projectID domain.ProjectID, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error) {
+func (r *{{ .Entity | lower }}Repository) List(ctx context.Context, tenantID domain.TenantID, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error) {
 	limit := params.EffectiveLimit()
 
 	// Fetch limit+1 rows to detect whether a next page exists.
 	rows, err := r.db.Query(ctx,
 		`SELECT id, created_at, updated_at
 		 FROM {{ .Entity | lower }}s
-		 WHERE project_id = $1 AND ($2 = '' OR id > $2)
+		 WHERE tenant_id = $1 AND ($2 = '' OR id > $2)
 		 ORDER BY id ASC
 		 LIMIT $3`,
 		// TODO(scaffolding): pick the pagination column that is UNIQUE and MONOTONIC
 		// (id is safe; created_at + id tiebreak is typical; never a non-unique column alone).
 		// Required before List is stable across pages — contract tests paginate through the set.
-		string(projectID), params.Cursor, limit+1,
+		string(tenantID), params.Cursor, limit+1,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list {{ .Entity | lower }}s: %w", err)
@@ -140,16 +140,16 @@ func (r *{{ .Entity | lower }}Repository) List(ctx context.Context, projectID do
 	}, nil
 }
 
-func (r *{{ .Entity | lower }}Repository) Update(ctx context.Context, projectID domain.ProjectID, item *domain.{{ .Entity }}) error {
+func (r *{{ .Entity | lower }}Repository) Update(ctx context.Context, tenantID domain.TenantID, item *domain.{{ .Entity }}) error {
 	tag, err := r.db.Exec(ctx,
 		`UPDATE {{ .Entity | lower }}s
 		 SET updated_at = $1
-		 WHERE id = $2 AND project_id = $3`,
+		 WHERE id = $2 AND tenant_id = $3`,
 		// TODO(scaffolding): for every mutable field, add `, field = $N` to the SET clause
 		// and append the matching item.Field() getter to the args below. Match domain setter
 		// semantics — never overwrite immutable fields like id/created_at.
 		// Required before Update persists edits — contract tests re-read after update.
-		item.UpdatedAt(), string(item.ID()), string(projectID),
+		item.UpdatedAt(), string(item.ID()), string(tenantID),
 	)
 	if err != nil {
 		return fmt.Errorf("update {{ .Entity | lower }}: %w", err)
@@ -160,11 +160,11 @@ func (r *{{ .Entity | lower }}Repository) Update(ctx context.Context, projectID 
 	return nil
 }
 
-func (r *{{ .Entity | lower }}Repository) Delete(ctx context.Context, projectID domain.ProjectID, id domain.{{ .Entity }}ID) error {
+func (r *{{ .Entity | lower }}Repository) Delete(ctx context.Context, tenantID domain.TenantID, id domain.{{ .Entity }}ID) error {
 	tag, err := r.db.Exec(ctx,
 		`DELETE FROM {{ .Entity | lower }}s
-		 WHERE id = $1 AND project_id = $2`,
-		string(id), string(projectID),
+		 WHERE id = $1 AND tenant_id = $2`,
+		string(id), string(tenantID),
 	)
 	if err != nil {
 		return fmt.Errorf("delete {{ .Entity | lower }}: %w", err)

@@ -948,7 +948,7 @@ commands:
       Created:
         internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}_{{ .Action | lower }}.go
 
-      Route: POST /api/v1/projects/{projectID}/{{ .Entity | lower }}s/{id}/{{ .Action | lower }}
+      Route: POST /api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}/{{ .Action | lower }}
 
       TESTS FOR THIS LAYER:
         Three test files to update when you add this action:

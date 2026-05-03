@@ -20,17 +20,17 @@ func ActorFromContext(ctx context.Context) (*domain.Actor, error) {
 	//     md, ok := metadata.FromIncomingContext(ctx); if !ok return ErrActorUnauthorized.
 	//     Read md.Get("authorization"), strip the "Bearer " prefix, validate signature
 	//     against the secret/issuer from config, extract 'sub' as domain.ActorID and
-	//     'project_id' as domain.ProjectID, then return domain.NewActor(...).
+	//     'tenant_id' as domain.TenantID, then return domain.NewActor(...).
 	//
 	//   Header-based (trusted upstream / service mesh):
 	//     md, ok := metadata.FromIncomingContext(ctx); if !ok return ErrActorUnauthorized.
-	//     actorIDs := md.Get("x-actor-id"); projectIDs := md.Get("x-project-id").
+	//     actorIDs := md.Get("x-actor-id"); tenantIDs := md.Get("x-tenant-id").
 	//     Require both non-empty; return domain.NewActor(domain.ActorID(actorIDs[0]),
-	//     domain.ProjectID(projectIDs[0])).
+	//     domain.TenantID(tenantIDs[0])).
 	//
 	//   mTLS peer identity:
-	//     Use peer.FromContext(ctx) + TLS cert SAN/CN to derive ActorID; ProjectID
-	//     typically comes from a separate "x-project-id" metadata header.
+	//     Use peer.FromContext(ctx) + TLS cert SAN/CN to derive ActorID; TenantID
+	//     typically comes from a separate "x-tenant-id" metadata header.
 	_ = metadata.FromIncomingContext
 	return nil, domain.ErrActorUnauthorized
 }
