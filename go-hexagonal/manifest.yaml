@@ -1429,67 +1429,6 @@ commands:
           wired to a message broker (NATS, RabbitMQ, Kafka, SQS).
 
   # ──────────────────────────────────────────────
-  # BFF OUTBOUND — typed BFF→core HTTP clients
-  # ──────────────────────────────────────────────
-  - command: add_bff_core_client
-    description: Scaffold per-entity typed methods on the BFF→core HTTP client + a contract test stub + the BFF wire registration
-    variables:
-      - key: Entity
-        description: Entity name in PascalCase (e.g. Book, Order)
-      - key: EntitySnake
-        description: Entity name in snake_case used for filenames (e.g. book, order_line)
-      - key: Context
-        description: Bounded context the entity lives in (used to import DTOs from pkg/<Context>/http/v1)
-      - key: ModulePath
-        description: "Module import path (e.g. github.com/example/myapp)"
-      - key: PathParamName
-        description: "Name of the path parameter the methods take (e.g. slug, id)"
-      - key: RoutePathPrefix
-        description: "URL prefix before the path parameter (e.g. /api/v1/books for /api/v1/books/{id})"
-      - key: RoutePathSuffix
-        description: "URL suffix after the path parameter, including any leading + concatenation. Use \"\" for none, or e.g. +\"/reviews\" for sub-resource routes."
-        optional: true
-    files:
-      - source: internal/bff/outbound/coreclient/client_entity.go.tmpl
-        destination: "internal/bff/outbound/coreclient/client_{{ .EntitySnake }}.go"
-      - source: internal/bff/outbound/coreclient/client_entity_test.go.tmpl
-        destination: "internal/bff/outbound/coreclient/client_{{ .EntitySnake }}_test.go"
-      - source: internal/bff/wire_entity.go.tmpl
-        destination: "internal/bff/wire_{{ .EntitySnake }}.go"
-    hint: |
-      BFF→core client scaffolding for {{ .Entity }} added.
-
-      Created:
-        internal/bff/outbound/coreclient/client_{{ .EntitySnake }}.go      — typed Get/Update methods (TODO: adjust verbs/paths/DTOs)
-        internal/bff/outbound/coreclient/client_{{ .EntitySnake }}_test.go — httptest contract stub (TODO: expand assertions)
-        internal/bff/wire_{{ .EntitySnake }}.go                            — wire registration calling Setup{{ .Entity }}Routes in queries + commands
-
-      ASSUMPTIONS:
-        - Shared infrastructure (Client, New, do, HTTPError) already lives in
-          internal/bff/outbound/coreclient/client.go. This template appends
-          per-entity methods to that package — it does NOT regenerate the
-          shared file.
-        - DTOs ({{ .Entity }}Response, Update{{ .Entity }}Request) live at
-          pkg/{{ .Context }}/http/v1/{{ .EntitySnake }}.go. Run add_public_types
-          first if they do not exist yet.
-        - Inbound BFF handlers (queries.Setup{{ .Entity }}Routes,
-          commands.Setup{{ .Entity }}Routes) are hand-authored per
-          docs/architecture/bff-core-proxy.md — wire_{{ .EntitySnake }}.go
-          will not compile until they exist.
-
-      NEXT STEPS:
-        1. In client_{{ .EntitySnake }}.go: replace the Get/Update method
-           bodies with one method per real core endpoint, fixing verb,
-           URL path, and request/response DTO types.
-        2. In client_{{ .EntitySnake }}_test.go: assert the URL path
-           pattern matches the core handler's wire format. Add one test
-           per public method.
-        3. Hand-author internal/bff/inbound/http/{queries,commands}/{{ .EntitySnake }}.go
-           following docs/architecture/bff-core-proxy.md. Each handler
-           calls the corresponding Client.<Method>{{ .Entity }} method.
-        4. Run go build ./... and make test-short.
-
-  # ──────────────────────────────────────────────
   # MIGRATIONS
   # ──────────────────────────────────────────────
   - command: add_migration
@@ -1704,16 +1643,6 @@ test:
     params:
       Context: catalog
       ModulePath: github.com/example/myapp
-  - command: add_bff_core_client
-    params:
-      Entity: Book
-      EntitySnake: book
-      Context: catalog
-      ModulePath: github.com/example/myapp
-      PathParamName: id
-      RoutePathPrefix: /api/v1/books
-      RoutePathSuffix: ""
-
 validate:
   - "test -f internal/catalog/outbound/pg/migrations/001_create_products.sql"
   - "grep -q '^-- +goose Up$' internal/catalog/outbound/pg/migrations/001_create_products.sql"
@@ -1722,11 +1651,6 @@ validate:
   - "test -f cmd/db-migrate/migrations/catalog/002_add_stock_column.sql"
   - "test ! -f cmd/db-migrate/migrations/002_add_stock_column.up.sql"
   - "test -f pkg/catalog/grpc/proto/catalog.proto"
-  - "test -f internal/bff/outbound/coreclient/client_book.go"
-  - "test -f internal/bff/outbound/coreclient/client_book_test.go"
-  - "test -f internal/bff/wire_book.go"
-  - "grep -q 'GetBook' internal/bff/outbound/coreclient/client_book.go"
-  - "grep -q 'wireBook' internal/bff/wire_book.go"
 
 shell_commands:
   - command: "goimports -w {{ .Files }}"
