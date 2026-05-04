@@ -6,31 +6,40 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-
+{{ if ne .NoContext "true" }}
 	"{{ .ModulePath }}/internal/{{ .Context }}/config"
+{{ end -}}
 )
 
 func main() {
-	// Load configuration
+{{ if ne .NoContext "true" -}}
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
-
-	// Setup structured logger
+{{ end }}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
 
-	// Graceful shutdown context
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+{{ if ne .NoContext "true" -}}
 	_ = cfg
+{{ end -}}
 	_ = ctx
 
+{{ if eq .NoContext "true" -}}
+	// TODO(scaffolding): implement the {{ .Binary }} process loop.
+	// This binary has no bounded-context dependency — wire only what it needs directly:
+	//   - migrator: connect to DB via os.Getenv("DATABASE_URL"), run migrate.Up, return
+	//   - standalone worker: pull from a queue, perform work, ack, repeat
+	//   - nats-setup: connect to NATS, create streams/consumers, return
+	// Avoid importing internal/<context>/ packages here; prefer self-contained setup.
+{{ else -}}
 	// TODO(scaffolding): implement the {{ .Binary }} process loop. This binary reuses the
 	// {{ .Context }} bounded context — wire the same adapters the main API uses (UoW,
 	// repositories, publishers) and drive them from a work source appropriate to the
@@ -41,6 +50,7 @@ func main() {
 	//   - scheduler: tick on cron expressions, invoke usecases, persist last-run state
 	// Required before `{{ .Binary }}` does any work — currently the process logs and
 	// blocks on ctx.Done() forever, which passes health checks but performs no function.
+{{ end -}}
 	slog.Info("{{ .Binary }} started")
 
 	<-ctx.Done()
