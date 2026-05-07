@@ -38,8 +38,6 @@ commands:
         destination: docker-compose.yml
       - source: go-arch-lint.yml.tmpl
         destination: .go-arch-lint.yml
-      - source: github/workflows/ci.yml.tmpl
-        destination: .github/workflows/ci.yml
       - source: gitignore.tmpl
         destination: .gitignore
       - source: README.md.tmpl
