@@ -45,6 +45,16 @@ func ToPublic{{ .Entity }}List(result *domain.ListResult[*domain.{{ .Entity }}])
 // To{{ .Entity }}Domain builds a new domain {{ .Entity }} from a create request.
 // Pass the request fields to New{{ .Entity }} in the constructor's argument order,
 // converting primitives to domain value types first — see the add_http_converter hint.
+//
+// IMPORTANT: this signature only takes the request body. If New{{ .Entity }} also needs
+// values that come from the *caller* rather than the body — the owner's ActorID, the
+// actor's tenant/group, a clock, an externally-assigned id — WIDEN this signature and
+// pass them from the handler, e.g.:
+//
+//	func To{{ .Entity }}Domain(req v1.Create{{ .Entity }}Request, owner domain.ActorID) (*domain.{{ .Entity }}, error)
+//
+// then call it as  converters.To{{ .Entity }}Domain(req, actor.ID())  in the handler.
+// Do NOT put actor-derived fields in the request body — clients must not control them.
 func To{{ .Entity }}Domain(req v1.Create{{ .Entity }}Request) (*domain.{{ .Entity }}, error) {
 	return domain.New{{ .Entity }}()
 }

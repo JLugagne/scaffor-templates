@@ -2,18 +2,71 @@ package shared
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
 )
 
-// WriteErrorJSON writes a structured error response.
-// All error responses use this format for consistent client parsing.
-func WriteErrorJSON(w http.ResponseWriter, status int, code, message string) {
+// WriteJSON writes v as a JSON response with the given status code.
+// Use this for successful responses (200/201/...). For errors use WriteErrorJSON
+// or WriteDomainError.
+func WriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]string{
-			"code":    code,
-			"message": message,
-		},
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// WriteErrorJSON writes a structured error response.
+// All error responses use this format for consistent client parsing:
+//
+//	{"error": {"code": "...", "message": "..."}}
+func WriteErrorJSON(w http.ResponseWriter, status int, code, message string) {
+	WriteJSON(w, status, map[string]any{
+		"error": map[string]string{"code": code, "message": message},
 	})
+}
+
+// WriteDomainError maps a domain error to an HTTP status + structured body and
+// writes it. Handlers call this for any error coming back from the app/usecase
+// layer — never leak raw error strings or stack traces.
+//
+// Mapping:
+//   - *domain.Error  → status derived from its Code suffix (see statusForDomainCode);
+//     body carries the error's Code + Message verbatim (safe — these are designed for clients).
+//   - any other error → 500 Internal Server Error, code "INTERNAL", generic message
+//     (the real error should already have been logged by the app layer; it is NOT exposed).
+//
+// If you need per-sentinel precision (e.g. one specific Err…NotFound → 404 regardless of
+// its code), add an errors.Is branch above the errors.As one. Extend statusForDomainCode
+// as your domain grows new error categories.
+func WriteDomainError(w http.ResponseWriter, err error) {
+	var de *domain.Error
+	if errors.As(err, &de) {
+		WriteErrorJSON(w, statusForDomainCode(de.Code), de.Code, de.Message)
+		return
+	}
+	WriteErrorJSON(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+}
+
+// statusForDomainCode picks an HTTP status from a domain error code's suffix.
+// Codes are UPPER_SNAKE (see domain.NewError), e.g. "ORDER_NOT_FOUND", "ACTOR_UNAUTHORIZED".
+func statusForDomainCode(code string) int {
+	switch {
+	case strings.HasSuffix(code, "_NOT_FOUND"):
+		return http.StatusNotFound
+	case strings.HasSuffix(code, "_UNAUTHORIZED"), strings.HasSuffix(code, "_FORBIDDEN"):
+		return http.StatusForbidden
+	case strings.HasSuffix(code, "_REQUIRED"), strings.HasSuffix(code, "_INVALID"),
+		strings.HasSuffix(code, "_TOO_LONG"), strings.HasSuffix(code, "_TOO_SHORT"),
+		strings.HasSuffix(code, "_NEGATIVE"), strings.HasSuffix(code, "_OUT_OF_RANGE"),
+		strings.HasSuffix(code, "_MALFORMED"):
+		return http.StatusBadRequest
+	case strings.HasSuffix(code, "_CONFLICT"), strings.HasSuffix(code, "_ALREADY_EXISTS"):
+		return http.StatusConflict
+	default:
+		// A domain rule was violated but the request itself was well-formed.
+		return http.StatusUnprocessableEntity
+	}
 }

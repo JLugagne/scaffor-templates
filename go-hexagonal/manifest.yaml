@@ -283,6 +283,10 @@ commands:
             | awk '/^func SetupRouter/,/^}$/' \
             | awk -v m="	Setup{{ .Entity }}(router, svc)" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
             | go-surgeon update-func --file internal/{{ .Context }}/inbound/http/commands/init.go --id SetupRouter
+      # The HTTP socle introduces github.com/go-playground/validator/v10 (used in pkg/<ctx>/http/v1/types.go);
+      # refresh go.mod/go.sum so `go build` works without a manual `go mod tidy`. Best-effort:
+      # `|| true` so an offline run still completes (re-run `go mod tidy` yourself once you have network).
+      - command: go mod tidy || true
     hint: |
       HTTP command handlers for {{ .Entity }} added (transport socle + route wiring + 501-stub bodies).
 
@@ -417,6 +421,8 @@ commands:
             | awk '/^func SetupRouter/,/^}$/' \
             | awk -v m="	Setup{{ .Entity }}(router, svc)" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
             | go-surgeon update-func --file internal/{{ .Context }}/inbound/http/queries/init.go --id SetupRouter
+      # Refresh go.mod/go.sum (the HTTP socle pulls in validator). Best-effort (`|| true` survives offline runs).
+      - command: go mod tidy || true
     hint: |
       HTTP query handlers for {{ .Entity }} added (transport socle if missing + route wiring + 501-stub bodies).
 
