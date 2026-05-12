@@ -8,29 +8,33 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// ActorFromContext extracts a domain.Actor from gRPC metadata.
-// Reads authentication metadata and builds the domain Actor.
-// Returns a domain error if the request is unauthenticated or malformed.
+// ActorFromContext builds a *domain.Actor from gRPC metadata — the boundary
+// where "who is calling" enters the system. The default below trusts an
+// `x-actor-id` metadata header, which is the safe default behind a trusted
+// upstream / service mesh. Extend it to match your domain.Actor (tenant, roles,
+// team, …) — see domain/actor.go and the `add_context` hint.
+//
+// Pick ONE auth method when you flesh this out:
+//
+//   Header-based (trusted upstream / service mesh) — what's wired below:
+//     md, _ := metadata.FromIncomingContext(ctx)
+//     ids := md.Get("x-actor-id"); require non-empty; domain.NewActor(domain.ActorID(ids[0])).
+//     (Add `x-tenant-id` → domain.TenantID and a 2-arg NewActor once Actor has a tenant.)
+//
+//   JWT (authorization metadata):
+//     read md.Get("authorization"), strip "Bearer ", validate signature against the
+//     issuer/secret from config, extract 'sub' as ActorID (and 'tenant_id' etc.).
+//
+//   mTLS peer identity:
+//     peer.FromContext(ctx) + the client cert SAN/CN → ActorID.
 func ActorFromContext(ctx context.Context) (*domain.Actor, error) {
-	// TODO(scaffolding): implement actor extraction from gRPC metadata.
-	// Required before any gRPC handler test passes — every handler calls this first.
-	// Pick ONE of the following based on the project's auth method:
-	//
-	//   JWT (authorization metadata):
-	//     md, ok := metadata.FromIncomingContext(ctx); if !ok return ErrActorUnauthorized.
-	//     Read md.Get("authorization"), strip the "Bearer " prefix, validate signature
-	//     against the secret/issuer from config, extract 'sub' as domain.ActorID and
-	//     'tenant_id' as domain.TenantID, then return domain.NewActor(...).
-	//
-	//   Header-based (trusted upstream / service mesh):
-	//     md, ok := metadata.FromIncomingContext(ctx); if !ok return ErrActorUnauthorized.
-	//     actorIDs := md.Get("x-actor-id"); tenantIDs := md.Get("x-tenant-id").
-	//     Require both non-empty; return domain.NewActor(domain.ActorID(actorIDs[0]),
-	//     domain.TenantID(tenantIDs[0])).
-	//
-	//   mTLS peer identity:
-	//     Use peer.FromContext(ctx) + TLS cert SAN/CN to derive ActorID; TenantID
-	//     typically comes from a separate "x-tenant-id" metadata header.
-	_ = metadata.FromIncomingContext
-	return nil, domain.ErrActorUnauthorized
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, domain.ErrActorIDRequired
+	}
+	ids := md.Get("x-actor-id")
+	if len(ids) == 0 || ids[0] == "" {
+		return nil, domain.ErrActorIDRequired
+	}
+	return domain.NewActor(domain.ActorID(ids[0]))
 }

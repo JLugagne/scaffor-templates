@@ -1,18 +1,38 @@
+// Package domain — file types.go
+//
+// PURPOSE
+//   Shared typed identifiers and small value objects used across more than one
+//   aggregate in this bounded context. Per-aggregate types live in their own
+//   file (see <entity>.go); this file is for the cross-cutting ones.
+//
+// THE SCOPING IDENTIFIER
+//   Most multi-tenant systems scope every row to a tenant/org/workspace/account.
+//   That scope is NOT passed as a bare ID through the layers — it travels inside
+//   the *domain.Actor (see actor.go). What lives here is just the *typed ID* for
+//   that scope, so the Actor and the repositories can reference it.
+//
+//   Questions to answer when you bootstrap the context:
+//     - Is there a scoping entity at all?  (single-tenant internal tool → no:
+//       delete TenantID, drop tenantID from Actor, drop it from repo SQL.)
+//     - What is it called in your ubiquitous language?  (Tenant? Organization?
+//       Workspace? Account? Project?) — rename TenantID → OrgID/WorkspaceID/… and
+//       the constructor with it.
+//     - Is it a UUID you mint, or an external id (Stripe customer, Auth0 org)?
+//       If external, drop NewTenantID and let it be assigned from outside.
 package domain
 
 import "github.com/google/uuid"
 
-// TenantID is the typed identifier for the scoping entity.
-// All repository methods include this as their first parameter
-// after context to enforce tenant isolation (IDOR protection).
+// TenantID is the typed identifier of the scoping entity. Rename it to match
+// your ubiquitous language; delete it (and the tenantID field on Actor) if the
+// system is single-tenant.
 //
-// Format: UUIDv7 as string — time-ordered so natural DB sort order matches
+// Format: UUIDv7 as string — time-ordered, so natural DB sort order matches
 // creation order (better index locality than UUIDv4, no extra created_at sort).
 type TenantID string
 
-// NewTenantID generates a new time-ordered UUIDv7 TenantID.
-// Must is used because NewV7 only errors if crypto/rand is unavailable —
-// at that point the process cannot function anyway.
+// NewTenantID generates a new time-ordered UUIDv7 TenantID. Delete this if the
+// scope id comes from an external system rather than being minted here.
 func NewTenantID() TenantID {
 	return TenantID(uuid.Must(uuid.NewV7()).String())
 }

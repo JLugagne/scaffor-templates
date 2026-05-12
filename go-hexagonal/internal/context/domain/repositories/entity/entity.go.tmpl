@@ -1,3 +1,26 @@
+// Package {{ .Entity | lower }}repo — the outbound persistence port for {{ .Entity }}.
+//
+// PURPOSE
+//   {{ .Entity }}Repository is an INTERFACE owned by the domain side. The domain
+//   and app layers depend on it; the concrete adapter (outbound/<adapter>/) depends
+//   on the domain. Inversion of control: the database is a detail behind this port.
+//
+// THE SCOPE PARAMETER
+//   Every method takes `actor *domain.Actor` as its first non-ctx parameter — NOT
+//   a bare tenantID. The adapter decides what it needs from the actor (typically
+//   actor.TenantID() for the WHERE clause, plus actor.HasRole(...) for row-level
+//   visibility if your model has roles). Passing the whole Actor keeps the IDOR
+//   boundary in one place and lets it evolve without touching every signature.
+//   Exception: a genuinely scope-less lookup (e.g. resolve a global slug) may take
+//   no actor — but call that out explicitly when you scaffold, it should be rare.
+//
+// CONVENTION
+//   - Parameter order: broad to narrow — (ctx, actor, entityID) — never reversed.
+//   - Methods return Err{{ .Entity }}NotFound (or a wrapped form) for the absent /
+//     out-of-scope case — callers rely on errors.Is, not nil checks.
+//   - The interface below starts as plain CRUD. Rename/extend to fit the aggregate
+//     (e.g. FindByEmail, ListPendingFor). The shared behaviour spec lives in
+//     {{ .Entity | lower }}repotest/contract.go and the `add_repository_interface` hint.
 package {{ .Entity | lower }}repo
 
 import (
@@ -7,15 +30,10 @@ import (
 )
 
 // {{ .Entity }}Repository is the outbound port for {{ .Entity }} persistence.
-// The domain and app layers depend on this interface, never on the concrete adapter.
-//
-// Convention: every method takes tenantID as its first non-ctx parameter — this is the
-// tenant isolation boundary (IDOR protection). Parameter order: broad to narrow —
-// (tenantID, entityID) — never reversed.
 type {{ .Entity }}Repository interface {
-	Create(ctx context.Context, tenantID domain.TenantID, item *domain.{{ .Entity }}) error
-	FindByID(ctx context.Context, tenantID domain.TenantID, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error)
-	List(ctx context.Context, tenantID domain.TenantID, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error)
-	Update(ctx context.Context, tenantID domain.TenantID, item *domain.{{ .Entity }}) error
-	Delete(ctx context.Context, tenantID domain.TenantID, id domain.{{ .Entity }}ID) error
+	Create(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) error
+	FindByID(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error)
+	List(ctx context.Context, actor *domain.Actor, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error)
+	Update(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) error
+	Delete(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) error
 }

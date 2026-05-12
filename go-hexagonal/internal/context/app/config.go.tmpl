@@ -1,24 +1,45 @@
+// Package app — file config.go (the App struct itself)
+//
+// PURPOSE
+//   App is the application service for this bounded context: one struct that
+//   implements every entity's usecase interfaces (Commands + Queries). It holds
+//   the outbound ports (repositories, publishers, the UnitOfWork, domain services)
+//   as unexported fields, injected at startup via Set<X> setters called from the
+//   wire_<entity>.go files. No globals, ever.
+//
+// HOW IT GROWS
+//   - `add_app_service`  adds  app/<entity>.go  with the entity's methods and a
+//     Set<Entity>Repo setter — then you add the matching field below by hand.
+//   - `add_publisher_adapter`  adds a Set<Entity>Publisher setter — add that field too.
+//   One App, many entities: methods are prefixed with the entity name so they
+//   never collide (Create<Entity>, PlaceOrder, …).
+//
+// SCOPING
+//   App methods take `actor *domain.Actor` and pass it straight through to the
+//   repositories. They never accept a bare tenantID — the actor IS the scope.
 package app
 
 import "log/slog"
 
-// App implements service interfaces from domain/services/.
-// Dependencies are injected via the constructor — never use globals.
+// App is the application service for this bounded context. Add one unexported
+// field per outbound dependency as you scaffold entities — the matching setter is
+// generated for you by `add_app_service` / `add_publisher_adapter`. Example:
+//
+//	type App struct {
+//	    logger *slog.Logger
+//	    orderRepo      orderrepo.OrderRepository
+//	    orderPublisher orderpub.OrderPublisher
+//	    uow            uow.UnitOfWork
+//	    pricing        services.Pricing
+//	}
 type App struct {
 	logger *slog.Logger
-	// TODO(scaffolding): add one unexported field per outbound dependency — repository
-	// interfaces, publisher interfaces, the UnitOfWork, any domain service. Each entity
-	// scaffolded via `add_app_service` appends its own Set<Entity>Repo setter that writes
-	// one of these fields from the wire file.
-	// Required before any App method can reach persistence — methods currently reference
-	// fields that don't exist, and `go build` fails on the first `add_app_service` pass.
-	//   projectRepo    projectrepo.ProjectRepository
-	//   orderRepo      orderrepo.OrderRepository
-	//   orderPublisher orderpub.OrderPublisher
-	//   uow            uow.UnitOfWork
 }
 
-// New creates an App with all dependencies injected.
+// New creates an App. The constructor takes only process-level dependencies
+// (logger, clock, …). Outbound adapters are injected afterwards via the Set<X>
+// setters, from the wire_<entity>.go files — keep it that way so wiring stays
+// per-entity and testable.
 func New(logger *slog.Logger) *App {
 	return &App{
 		logger: logger,

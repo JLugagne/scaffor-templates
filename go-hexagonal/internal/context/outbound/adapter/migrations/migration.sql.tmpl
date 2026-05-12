@@ -17,13 +17,17 @@
 -- the migration suite on an already-migrated database is safe. Use native UUID
 -- for every id/<entity>_id column.
 --
--- Example:
+-- Example (single-tenant — the scaffold default):
 --   CREATE TABLE IF NOT EXISTS books (
 --       id         UUID PRIMARY KEY,
---       tenant_id  UUID NOT NULL,
+--       title      TEXT NOT NULL,
 --       created_at TIMESTAMPTZ NOT NULL,
 --       updated_at TIMESTAMPTZ NOT NULL
 --   );
+--
+-- Multi-tenant? Add the scope column + index here AND scope every query in the
+-- repository adapter (see that file's header):
+--   ALTER TABLE books ADD COLUMN IF NOT EXISTS tenant_id UUID NOT NULL;
 --   CREATE INDEX IF NOT EXISTS books_tenant_id_idx ON books (tenant_id);
 -- +goose StatementEnd
 

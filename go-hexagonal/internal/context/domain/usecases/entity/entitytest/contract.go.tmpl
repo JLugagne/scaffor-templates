@@ -42,17 +42,17 @@ func {{ .Entity }}QueriesContractTesting(t *testing.T, svc {{ .Entity | lower }}
 	})
 
 	t.Run("Contract: List returns items in scope", func(t *testing.T) {
-		// TODO(scaffolding): seed entities under the actor's tenant and at least one under
-		// a different tenant; assert List returns only the former. Required to cover the
-		// tenant-scoping invariant every query must respect.
+		// TODO(scaffolding): seed entities under `actor`'s scope and at least one under a
+		// different scope; assert List returns only the former — every query must
+		// respect the scoping invariant.
 		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
 	})
 
-	t.Run("Contract: GetByID wrong scope returns error", func(t *testing.T) {
-		// TODO(scaffolding): seed an entity under tenant A, call Get{{ .Entity }}ByID with
-		// an actor whose TenantID is B, and assert the result is Err{{ .Entity }}NotFound
-		// (NOT the entity). Required as the IDOR regression guard — if this passes against
-		// mock but fails against real adapter, the adapter is leaking rows across tenants.
+	t.Run("Contract: GetByID out-of-scope returns error", func(t *testing.T) {
+		// TODO(scaffolding): seed an entity under `actor`, build a second actor in another
+		// scope, call Get{{ .Entity }}ByID(other, sameID) and assert Err{{ .Entity }}NotFound
+		// (NOT the entity). IDOR regression guard — if this passes against the mock but
+		// fails against the real adapter, the adapter is leaking rows across scopes.
 		t.Fatal("TODO(scaffolding): implement this test case or remove the t.Run block entirely — do not leave placeholders")
 	})
 }

@@ -1,3 +1,14 @@
+// Package queries — file {{ .Entity | lower }}.go ({{ .Entity }} gRPC read handlers)
+//
+// PURPOSE
+//   The gRPC query side for {{ .Entity }}: a handler struct holding the {{ .Entity }}Queries
+//   usecase, plus Setup{{ .Entity }}Services to register the generated server. Handler
+//   methods are thin — ActorFromContext → parse the proto request → call the usecase →
+//   map domain errors to gRPC status codes → return the proto response. No side effects.
+//
+// THIS IS A SKELETON — no proto stubs yet, nothing registered, no handler methods.
+//   Flesh it out from the `add_grpc_queries` hint (define RPCs in the .proto, run
+//   protoc, register the server, add one handler method per RPC).
 package queries
 
 import (
@@ -11,25 +22,9 @@ type {{ .Entity | lower }}Handler struct {
 }
 
 // Setup{{ .Entity }}Services registers gRPC query services for {{ .Entity }}.
-// Called from the composition root (wire_{{ .Entity | lower }}.go).
+// Called from the composition root (wire_{{ .Entity | lower }}.go). Register the generated
+// server here once proto stubs exist — see the add_grpc_queries hint.
 func Setup{{ .Entity }}Services(srv *grpc.Server, q {{ .Entity | lower }}uc.{{ .Entity }}Queries) {
 	h := &{{ .Entity | lower }}Handler{queries: q}
 	_ = h
-	// TODO(scaffolding): register the generated gRPC server with `srv` after proto stubs exist.
-	// Required before any gRPC query test passes — without registration, the server rejects
-	// every call with Unimplemented.
-	//   1. Define GetByID/List RPCs in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
-	//   2. Run protoc (see Makefile.tmpl) to generate pkg/{{ .Context }}/grpc/*.pb.go
-	//   3. Uncomment: pb.Register{{ .Entity }}QueriesServer(srv, h)
 }
-
-// TODO(scaffolding): implement one method on *{{ .Entity | lower }}Handler per proto RPC.
-// Required before gRPC query calls return anything other than Unimplemented.
-// Each method must: call ActorFromContext, parse the proto request into domain IDs / ListParams,
-// invoke h.queries.*, map domain errors to gRPC status codes, and return the proto response
-// built via converters.ToProto*.
-//   func (h *{{ .Entity | lower }}Handler) Get{{ .Entity }}ByID(ctx context.Context, req *pb.Get{{ .Entity }}ByIDRequest) (*pb.Get{{ .Entity }}ByIDResponse, error) {
-//       actor, err := grpc.ActorFromContext(ctx); if err != nil { return nil, status.Error(codes.Unauthenticated, err.Error()) }
-//       item, err := h.queries.Get{{ .Entity }}ByID(ctx, actor, domain.{{ .Entity }}ID(req.Id)); if err != nil { return nil, mapDomainErr(err) }
-//       return &pb.Get{{ .Entity }}ByIDResponse{Item: converters.ToProto{{ .Entity }}(item)}, nil
-//   }

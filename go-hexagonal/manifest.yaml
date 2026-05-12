@@ -158,14 +158,50 @@ commands:
         cmd/{{ .Context }}/main.go                                     — entry point (creates backends, health, graceful shutdown)
         internal/{{ .Context }}/init.go                                — composition root (receives Backends, wires DI)
         internal/{{ .Context }}/config/config.go                       — context-specific business config
-        internal/{{ .Context }}/domain/errors.go                       — domain error pattern
-        internal/{{ .Context }}/domain/types.go                        — typed IDs
+        internal/{{ .Context }}/domain/errors.go                       — domain Error type + NewError
+        internal/{{ .Context }}/domain/types.go                        — TenantID (the scoping id — rename/delete to fit)
         internal/{{ .Context }}/domain/query.go                        — ListParams + ListResult (cursor pagination)
-        internal/{{ .Context }}/domain/actor.go                        — Actor type (authenticated identity)
+        internal/{{ .Context }}/domain/actor.go                        — Actor (authenticated identity) — MINIMAL: {id} only
         internal/{{ .Context }}/domain/services/doc.go                 — pure domain logic placeholder
-        internal/{{ .Context }}/app/config.go                          — app service with DI
+        internal/{{ .Context }}/app/config.go                          — the App struct (DI container) — only a logger so far
         pkg/{{ .Context }}/events/v1/                                  — public event types (consumed, emitted)
         tests/e2e-api/{{ .Context }}/setup_test.go                     — e2e helpers (doGet, doPost, etc.) for this context
+
+      ── DECIDE THE IDENTITY / SCOPING MODEL NOW (it ripples into every layer) ─────
+      The scaffolded domain.Actor is just {id}. Every app/usecase/repository method
+      takes `actor *domain.Actor` — never a bare tenantID. Extend Actor (and the
+      adapters that build it: inbound/http/shared/actor.go, inbound/grpc/actor.go)
+      to match your answers below. Copy the matching block into domain/actor.go.
+
+        Q: Is there a tenant / org / workspace / account?
+          NO  → delete domain.TenantID (types.go) and skip the rest. Single-tenant.
+          YES → keep TenantID (rename it: OrgID? WorkspaceID? AccountID?), and:
+                  type Actor struct { id ActorID; tenantID TenantID }
+                  func NewActor(id ActorID, tenantID TenantID) (*Actor, error) {
+                      if id == "" { return nil, ErrActorIDRequired }
+                      if tenantID == "" { return nil, NewError("ACTOR_TENANT_REQUIRED", "actor tenant id is required") }
+                      return &Actor{id: id, tenantID: tenantID}, nil
+                  }
+                  func (a *Actor) TenantID() TenantID { return a.tenantID }
+                Then add `tenant_id` to migrations + scope every query in the repo
+                adapter (see that file's header) + enable the out-of-scope contract cases.
+
+        Q: Are there roles / permissions?
+          NO  → nothing to add.
+          YES (simple RBAC) → add to Actor:
+                  roles []string
+                  func (a *Actor) AddRole(r string) { a.roles = append(a.roles, r) }
+                  func (a *Actor) HasRole(r string) bool { for _, x := range a.roles { if x == r { return true } }; return false }
+                Inbound adapter populates from X-Roles / JWT claims.
+          YES (richer) → typed permission set + a Can(Permission) predicate instead.
+
+        Q: Is there a sub-tenant grouping (team / squad / project within the org)?
+          YES → add TeamID typed id + teamID field + getter, and (usually) a column
+                + filter in the repo adapter. Used for "members of team X in org Y".
+
+        Q: Does the actor's *kind* matter (human vs service account vs cron)?
+          YES → add an actorKind enum field; the domain may grant service callers
+                broader scope or skip per-user rate limits.
 
       NOTE: inbound transports are NOT scaffolded automatically. The generated
       cmd/{{ .Context }}/main.go and internal/{{ .Context }}/init.go reference the HTTP
@@ -174,12 +210,13 @@ commands:
       want gRPC.
 
       NEXT STEPS:
-        1. Add the HTTP inbound transport (routes, middleware, shared helpers, public types):
+        1. Decide the Actor/scoping model above and edit domain/actor.go + domain/types.go
+        2. Add the HTTP inbound transport (routes, middleware, shared helpers, public types):
            scaffor execute go-hexagonal add_inbound_http --set Context={{ .Context }} --set ModulePath={{ .ModulePath }}
-        2. (Optional) Add the gRPC inbound transport:
+        3. (Optional) Add the gRPC inbound transport:
            scaffor execute go-hexagonal add_inbound_grpc --set Context={{ .Context }} --set ModulePath={{ .ModulePath }}
-        3. Add context-specific settings to internal/{{ .Context }}/config/config.go
-        4. Add your first entity:
+        4. Add context-specific settings to internal/{{ .Context }}/config/config.go
+        5. Add your first entity:
            scaffor execute go-hexagonal add_entity --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity=YourEntity --set Adapter=pg
 
   # ──────────────────────────────────────────────
@@ -301,28 +338,79 @@ commands:
     hint: |
       Domain entity {{ .Entity }} added to {{ .Context }}.
 
-      Created:
-        internal/{{ .Context }}/domain/{{ .Entity | lower }}.go — typed ID, entity struct, domain errors
+      Created (deliberately near-empty — fill it in from this hint):
+        internal/{{ .Context }}/domain/{{ .Entity | lower }}.go
+          {{ .Entity }}ID + New{{ .Entity }}ID + bare {{ .Entity }} struct + New{{ .Entity }} +
+          Reconstitute{{ .Entity }} stub + getters + Err{{ .Entity }}NotFound
+
+      ── ANSWER THESE FIRST (they shape the struct) ────────────────────────────────
+        • What attributes does {{ .Entity }} have? (name, email, amount, status, …)
+          Use a typed value object when the value has its own rules (domain.Money,
+          domain.{{ .Entity }}Status) rather than a raw string/int.
+        • Which attributes are MUTABLE after creation? → those get setters; the rest
+          are constructor-only.
+        • Does it have a lifecycle / state machine? → add a status field + transition
+          methods (e.g. MarkPaid) that validate the source state.
+        • Does it have a parent / belong to another aggregate? → hold the parent's
+          typed ID, not the parent struct.
+        • Are some attributes required at construction? → validate in New{{ .Entity }}
+          and return a named Err{{ .Entity }}XxxRequired.
+
+      ── CONDENSED EXAMPLE (entity with a required, mutable `name`) ─────────────────
+
+        var (
+            Err{{ .Entity }}NotFound     = NewError("{{ .Entity | upper }}_NOT_FOUND", "{{ .Entity | lower }} not found")
+            Err{{ .Entity }}NameRequired = NewError("{{ .Entity | upper }}_NAME_REQUIRED", "{{ .Entity | lower }} name is required")
+        )
+
+        type {{ .Entity }} struct {
+            id        {{ .Entity }}ID
+            name      string
+            createdAt time.Time
+            updatedAt time.Time
+        }
+
+        func New{{ .Entity }}(name string) (*{{ .Entity }}, error) {
+            name = strings.TrimSpace(name)
+            if name == "" {
+                return nil, Err{{ .Entity }}NameRequired
+            }
+            now := time.Now()
+            return &{{ .Entity }}{id: New{{ .Entity }}ID(), name: name, createdAt: now, updatedAt: now}, nil
+        }
+
+        // No validation — trusted DB rows only. Order must match the repository's Scan.
+        func Reconstitute{{ .Entity }}(id {{ .Entity }}ID, name string, createdAt, updatedAt time.Time) *{{ .Entity }} {
+            return &{{ .Entity }}{id: id, name: name, createdAt: createdAt, updatedAt: updatedAt}
+        }
+
+        func (e *{{ .Entity }}) Name() string { return e.name }
+
+        func (e *{{ .Entity }}) SetName(name string) error {
+            name = strings.TrimSpace(name)
+            if name == "" {
+                return Err{{ .Entity }}NameRequired
+            }
+            e.name = name
+            e.updatedAt = time.Now()
+            return nil
+        }
+
+      Once the fields exist: update Reconstitute{{ .Entity }}'s signature here AND in the
+      repository adapter's Scan path (they must agree), and update New{{ .Entity }}'s
+      parameters wherever it is called.
 
       TESTS FOR THIS LAYER:
-        Domain entities are pure value objects — test them directly with table-driven unit tests.
-        No mocks or infrastructure needed. Test file: internal/{{ .Context }}/domain/{{ .Entity | lower }}_test.go
-        Cover: constructor validation, setter validation, state transitions (e.g. MarkPaid), computed fields.
-        Generate a skeleton:
+        Pure value object → table-driven unit tests, no mocks/infra.
+        Cover: constructor validation, each setter, state transitions, computed fields.
           go-surgeon test -f internal/{{ .Context }}/domain/{{ .Entity | lower }}.go -i New{{ .Entity }}
 
       NEXT STEPS:
-        1. Define {{ .Entity }} fields in domain/{{ .Entity | lower }}.go
+        1. Define {{ .Entity }}'s fields/setters/errors from the example above
         2. Write domain unit tests (red → green)
-        3. Add repository interface:
-           scaffor execute go-hexagonal add_repository_interface --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
-        4. Add usecase interfaces (Commands + Queries):
-           scaffor execute go-hexagonal add_usecase_interface --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
-
-      Typical next steps:
-        - add_repository_interface  — to persist this entity
-        - add_usecase_interface     — Commands and Queries contracts
-        - Then add_app_service, add_wire, add_http_handler in that order
+        3. add_repository_interface  — to persist this entity
+        4. add_usecase_interface     — Commands and Queries contracts
+        5. Then add_app_service, add_wire, add_http_handler in that order
 
   - command: add_domain_uow
     description: Add a Unit of Work interface to the domain layer
@@ -452,16 +540,23 @@ commands:
 
       The mock is auto-generated via post_command — no manual step needed on first run.
 
+      SCOPE PARAMETER: every method takes `actor *domain.Actor` after `ctx` — never a
+      bare tenantID. The adapter pulls what it needs from the actor (e.g. actor.TenantID()
+      for the WHERE clause once your Actor carries a tenant). A genuinely scope-less
+      lookup may omit the actor — that should be rare and called out explicitly.
+
       TESTS FOR THIS LAYER:
         contract.go defines the shared test suite. Every adapter (pg, redis, …) runs it via a thin
         testcontainer harness — the suite itself never changes when you add an adapter.
+        It ships out-of-scope cases as the IDOR guard — wire them once the adapter actually
+        scopes (build a second actor in a different scope inside the t.Run).
         When you add a method to the interface:
           1. Add a case to contract.go covering the new method
           2. Regenerate the mock:
              scaffor execute go-hexagonal add_repository_mock --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
 
       NEXT STEPS:
-        1. Customize the interface methods for {{ .Entity }}'s needs
+        1. Rename/extend the interface methods for {{ .Entity }}'s needs (FindByEmail, ListPendingFor, …)
         2. Add test cases to {{ .Entity | lower }}repotest/contract.go for each method
         3. Add the adapter implementation:
            scaffor execute go-hexagonal add_repository_adapter --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter=pg
@@ -517,11 +612,18 @@ commands:
       {{ .Entity }} repository adapter ({{ .Adapter }}) added.
 
       Created:
-        internal/{{ .Context }}/outbound/{{ .Adapter }}/repository_{{ .Entity | lower }}.go — adapter implementing {{ .Entity }}Repository
+        internal/{{ .Context }}/outbound/{{ .Adapter }}/repository_{{ .Entity | lower }}.go — working CRUD
+          implementation of {{ .Entity }}Repository (a starting point you adapt, not a stub)
 
       NEXT STEPS:
-        1. Implement the repository methods with real queries
-        2. Remember: every query MUST include scope ID (IDOR protection)
+        1. Map your entity's fields into the SQL — for each mutable field: add it to the
+           SELECT/INSERT/UPDATE column list + $N placeholder, add a scan var (matching
+           column order), append the item.Field() getter to the args, and add it to
+           domain.Reconstitute{{ .Entity }}'s signature (which must agree with the Scan).
+        2. SCOPING: the scaffolded SQL is single-tenant (no scope filter). If multi-tenant,
+           add a `tenantID` field to domain.Actor, a `tenant_id` column+index in the
+           migration, and `AND tenant_id = $N` to every statement here (the file header
+           has the checklist). Then enable the out-of-scope cases in {{ .Entity | lower }}repotest/contract.go.
         3. If UoW exists, add a repo accessor to pgRepositories and to domain/uow/uow.go:
            go-surgeon create --object func --file internal/{{ .Context }}/outbound/{{ .Adapter }}/uow.go \
              -i pgRepositories.{{ .Entity }}s \
@@ -661,44 +763,118 @@ commands:
     post_commands:
       - add_wire
     hint: |
-      App service for {{ .Entity }} added.
+      App service file for {{ .Entity }} added (near-empty by design — build it from this hint).
 
       Created:
-        internal/{{ .Context }}/app/{{ .Entity | lower }}.go — service method stubs + Set{{ .Entity }}Repo setter
+        internal/{{ .Context }}/app/{{ .Entity | lower }}.go — `package app`, a header doc, ONE commented
+          example method, and the Set{{ .Entity }}Repo setter (appended via go-surgeon)
 
       Auto-wired (via add_wire post_command):
         internal/{{ .Context }}/wire_{{ .Entity | lower }}.go — registers wire{{ .Entity }}() via init()
 
-      REMAINING MANUAL STEP:
-        Add the repo field to the App struct in app/config.go:
-          {{ .Entity | lower }}Repo {{ .Entity | lower }}repo.{{ .Entity }}Repository
+      REMAINING MANUAL STEPS (in order):
+        1. Add the repo field to the App struct in app/config.go:
+             {{ .Entity | lower }}Repo {{ .Entity | lower }}repo.{{ .Entity }}Repository
+        2. Write the methods (see skeleton below).
+        3. Add the compile-time assertions once method names match the interfaces:
+             var (
+                 _ {{ .Entity | lower }}uc.{{ .Entity }}Commands = (*App)(nil)
+                 _ {{ .Entity | lower }}uc.{{ .Entity }}Queries  = (*App)(nil)
+             )
+        4. For each method you define, generate its unit-test stub:
+             go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.<MethodName>
 
-      TESTS FOR THIS LAYER — two tiers:
-        Unit tests (internal/{{ .Context }}/app/{{ .Entity | lower }}_test.go):
-          Use Mock{{ .Entity }}Repository and Mock{{ .Entity }}Publisher. Fast, no infra.
-          Auto-generated by add_app_unit_test. Covers Create, Update, GetByID, List, Delete.
-          For custom action methods (PlaceOrder, PayOrder, …) generate manually:
-            go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.PlaceOrder
-        Contract tests (internal/{{ .Context }}/app/{{ .Entity | lower }}_contract_test.go):
-          Use real repos via testcontainers. Delegates to {{ .Entity | lower }}uctest.{{ .Entity }}CommandsContractTesting.
-          Auto-generated by add_app_service_contract_test.
-        When you add a method to the app service, generate its unit test stub:
-          go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.<MethodName>
+      ── DECIDE FIRST ─────────────────────────────────────────────────────────────
+        • What operations does {{ .Entity }} actually support? Rename CRUD to the
+          ubiquitous language — PlaceOrder/PayOrder/CancelOrder, not Create/Update/Delete.
+          (Update the {{ .Entity }}Commands/{{ .Entity }}Queries interface to match, then
+          regenerate the mock: add_usecase_mock.)
+        • Does an operation touch >1 aggregate, or write-then-publish? → wrap it in
+          a.uow.Do(...) so it's atomic. Otherwise call the repo directly.
+        • Does it need a domain-service check before mutating? → call services.Xxx
+          to validate, then the entity method to mutate, then the repo to persist.
+
+      ── CRUD SKELETON (every method takes `actor *domain.Actor`) ─────────────────
+
+        import (
+            "context"
+            "fmt"
+            "{{ .ModulePath }}/internal/{{ .Context }}/domain"
+        )
+
+        func (a *App) Create{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error) {
+            if err := a.{{ .Entity | lower }}Repo.Create(ctx, actor, item); err != nil {
+                return nil, fmt.Errorf("create {{ .Entity | lower }}: %w", err)
+            }
+            a.logger.InfoContext(ctx, "created {{ .Entity | lower }}", "id", item.ID(), "actor", actor.ID())
+            return item, nil
+        }
+
+        func (a *App) Get{{ .Entity }}ByID(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error) {
+            item, err := a.{{ .Entity | lower }}Repo.FindByID(ctx, actor, id)
+            if err != nil {
+                return nil, fmt.Errorf("get {{ .Entity | lower }} by id: %w", err)
+            }
+            return item, nil
+        }
+
+        func (a *App) List{{ .Entity }}s(ctx context.Context, actor *domain.Actor, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error) {
+            res, err := a.{{ .Entity | lower }}Repo.List(ctx, actor, params)
+            if err != nil {
+                return nil, fmt.Errorf("list {{ .Entity | lower }}s: %w", err)
+            }
+            return res, nil
+        }
+
+        func (a *App) Update{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error) {
+            if err := a.{{ .Entity | lower }}Repo.Update(ctx, actor, item); err != nil {
+                return nil, fmt.Errorf("update {{ .Entity | lower }}: %w", err)
+            }
+            a.logger.InfoContext(ctx, "updated {{ .Entity | lower }}", "id", item.ID(), "actor", actor.ID())
+            return item, nil
+        }
+
+        func (a *App) Delete{{ .Entity }}(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) error {
+            if err := a.{{ .Entity | lower }}Repo.Delete(ctx, actor, id); err != nil {
+                return fmt.Errorf("delete {{ .Entity | lower }}: %w", err)
+            }
+            a.logger.InfoContext(ctx, "deleted {{ .Entity | lower }}", "id", id, "actor", actor.ID())
+            return nil
+        }
+
+      ── ACTION METHOD EXAMPLE (state transition — preferred over a generic Update) ─
+
+        func (a *App) Pay{{ .Entity }}(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error) {
+            item, err := a.{{ .Entity | lower }}Repo.FindByID(ctx, actor, id)         // load
+            if err != nil {
+                return nil, fmt.Errorf("pay {{ .Entity | lower }}: %w", err)
+            }
+            if err := item.MarkPaid(); err != nil {                                  // domain method enforces the transition
+                return nil, err
+            }
+            if err := a.{{ .Entity | lower }}Repo.Update(ctx, actor, item); err != nil {
+                return nil, fmt.Errorf("pay {{ .Entity | lower }}: %w", err)
+            }
+            a.logger.InfoContext(ctx, "paid {{ .Entity | lower }}", "id", id, "actor", actor.ID())
+            return item, nil
+        }
+
+      ── UoW EXAMPLE (atomic across repos) ────────────────────────────────────────
+
+        err := a.uow.Do(ctx, func(ctx context.Context, repos uow.Repositories) error {
+            // repos.{{ .Entity }}s().Create(ctx, actor, item)
+            // repos.OtherThings().Update(ctx, actor, other)
+            return nil
+        })
 
       NEXT STEPS:
-        1. Add field above to App struct in config.go (one-time per entity)
-        2. Implement Create{{ .Entity }}, Get{{ .Entity }}ByID, List{{ .Entity }}s, Delete{{ .Entity }} methods
-        3. Rename methods to reflect ubiquitous language (e.g. PlaceOrder, PayOrder)
-        4. For each renamed/added method regenerate its unit test stub (command above)
-
-      Typical next steps:
         - add_wire         — register this entity in the composition root
                              (this is what actually connects the app to HTTP routes)
         - add_http_handler — expose this entity via HTTP (CRUD routes + converter)
-        - add_app_unit_test — cover critical app methods
+        - add_app_unit_test / add_app_service_contract_test — once the methods exist
 
   - command: add_app_service_contract_test
-    description: Add a contract test for the app service against real infrastructure
+    description: Print the procedure to generate contract-test stubs for the app service (run after the methods exist)
     variables:
       - key: Context
         description: Bounded context name
@@ -707,24 +883,26 @@ commands:
       - key: Entity
         description: Entity name in PascalCase
     files: []
-    shell_commands:
-      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.Create{{ .Entity }}"
     hint: |
-      App service contract test for {{ .Entity }} generated by go-surgeon.
+      App service contract tests for {{ .Entity }} — generate them yourself, AFTER the
+      app methods exist. (The scaffold cannot do it for you: it would have to guess
+      method names, and the app service starts empty by design.)
 
-      Generated file: internal/{{ .Context }}/app/{{ .Entity | lower }}_contract_test.go
-
-      This test runs with a real backend via testcontainers and delegates to
-      {{ .Entity | lower }}uctest.{{ .Entity }}CommandsContractTesting(t, svc, actor).
-      DO NOT rewrite or simplify the generated test — fill in the TODO test cases only.
-
-      COVERAGE RULE: every public method on App that handles {{ .Entity }} must have a contract
-      test. The scaffold only generates a stub for Create{{ .Entity }} — generate stubs for all
-      remaining methods and keep coverage complete as new methods are added:
+      For each public method App has for {{ .Entity }}, generate a contract-test stub:
         go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.<MethodName>
 
+      Wire each stub to the shared suite — it runs against a real backend
+      (testcontainers) and delegates to:
+        {{ .Entity | lower }}uctest.{{ .Entity }}CommandsContractTesting(t, svc, actor)
+        {{ .Entity | lower }}uctest.{{ .Entity }}QueriesContractTesting(t, svc, actor)
+      (the shared cases live in domain/usecases/{{ .Entity | lower }}uc/{{ .Entity | lower }}uctest/contract.go).
+
+      COVERAGE RULE: every public {{ .Entity }} method on App needs a contract test —
+      keep it complete as the method set evolves. Don't rewrite the generated stub
+      structure; fill in its TODO cases.
+
   - command: add_app_unit_test
-    description: Add unit tests for the app service layer using mocks
+    description: Print the procedure to generate unit-test stubs for the app service (run after the methods exist)
     variables:
       - key: Context
         description: Bounded context name
@@ -733,31 +911,25 @@ commands:
       - key: Entity
         description: Entity name in PascalCase
     files: []
-    shell_commands:
-      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.Create{{ .Entity }}"
-      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.Update{{ .Entity }}"
-      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.Get{{ .Entity }}ByID"
-      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.List{{ .Entity }}s"
-      - command: "go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.Delete{{ .Entity }}"
     hint: |
-      App service unit tests for {{ .Entity }} generated by go-surgeon.
+      App service unit tests for {{ .Entity }} — generate them yourself, AFTER the
+      app methods exist. (The app service starts empty by design — there are no
+      Create{{ .Entity }}/etc. to stub until you write them.)
 
-      Generated file: internal/{{ .Context }}/app/{{ .Entity | lower }}_test.go
+      For each method you wrote on App for {{ .Entity }}:
+        go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.<MethodName>
 
       These are white-box unit tests using Mock{{ .Entity }}Repository (and Mock{{ .Entity }}Publisher
-      if the entity has a publisher). No infrastructure required.
-      DO NOT rewrite or simplify the generated tests — fill in the TODO test cases only.
+      if the entity has one). No infrastructure. Fill in the TODO cases; don't rewrite
+      the generated structure. Cover per method: happy path, each error branch, and
+      out-of-scope access (if your Actor carries a scope).
 
-      Stubs generated: Create{{ .Entity }}, Update{{ .Entity }}, Get{{ .Entity }}ByID, List{{ .Entity }}s, Delete{{ .Entity }}.
-      For custom action methods (e.g. PlaceOrder, PayOrder) generate manually:
-        go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.<ActionMethod>
-
-      WARNING: go-surgeon test APPENDS to existing test files — it does not replace them.
-      If you rename methods (e.g. CreateOrder → PlaceOrder) and re-run this command,
-      stale stubs for the old names will accumulate and break the build.
-      Before re-running after a rename, delete the old test file first:
+      WARNING: `go-surgeon test` APPENDS — it never replaces. If you rename a method
+      (CreateOrder → PlaceOrder) and re-run for the new name, the stale stub for the
+      old name remains and breaks the build. Delete the test file and regenerate all
+      stubs after a rename:
         rm internal/{{ .Context }}/app/{{ .Entity | lower }}_test.go
-        scaffor execute go-hexagonal add_app_unit_test --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+        # then re-generate one stub per current method (see above)
 
   # ──────────────────────────────────────────────
   # WIRING — per-entity composition root registration
@@ -827,34 +999,76 @@ commands:
             | awk -v m="	Setup{{ .Entity }}(router, svc)" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
             | go-surgeon update-func --file internal/{{ .Context }}/inbound/http/commands/init.go --id SetupRouter
     hint: |
-      HTTP commands for {{ .Entity }} added.
+      HTTP command handlers for {{ .Entity }} added (route wiring + 501-stub bodies).
 
       Created:
-        internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go — Create, Update, Delete handlers
+        internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go
+          {{ .Entity }}App interface, {{ .Entity }}Svc, Setup{{ .Entity }}, the action-registrar
+          slice, and create/update/delete handlers that currently return 501
 
       Updated (via go-surgeon):
-        internal/{{ .Context }}/inbound/http/commands/init.go
-          - App interface now embeds {{ .Entity }}App
-          - SetupRouter now calls Setup{{ .Entity }}(router, svc)
+        internal/{{ .Context }}/inbound/http/commands/init.go — App embeds {{ .Entity }}App;
+        SetupRouter calls Setup{{ .Entity }}(router, svc). No edit to wire_{{ .Entity | lower }}.go.
 
-      TESTS FOR THIS LAYER:
-        HTTP command handlers are tested at the e2e level (tests/e2e-api/{{ .Entity | lower }}_test.go).
-        They receive Mock{{ .Entity }}Commands so they never hit real infrastructure.
-        Cover per handler: happy path, validation errors (400), not-found (404), auth errors (403).
-        Generate stubs after implementing the handlers:
+      ── DECIDE THE ROUTES ────────────────────────────────────────────────────────
+        • Pure CRUD? keep PUT /{{ .Entity | lower }}s/{id} + DELETE here.
+        • State machine (order: place → pay → fulfill)? Drop update/delete and model
+          each transition with add_http_action instead — pass EntityHasActions=true
+          when scaffolding to suppress the PUT/DELETE routes.
+        • Bulk / nested-resource routes? Append them via {{ .Entity | lower }}CommandsActions
+          (init() registrar), same mechanism add_http_action uses.
+
+      ── HANDLER PATTERN (fill in create/update/delete) ──────────────────────────
+
+        func (s {{ .Entity }}Svc) create(w http.ResponseWriter, r *http.Request) {
+            actor, err := shared.ActorFromRequest(r.Context(), r)
+            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+
+            var req v1.Create{{ .Entity }}Request
+            if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+                shared.WriteErrorJSON(w, http.StatusBadRequest, "INVALID_JSON", err.Error()); return
+            }
+            if err := s.Validator.Struct(req); err != nil {
+                shared.WriteErrorJSON(w, http.StatusBadRequest, "VALIDATION_FAILED", err.Error()); return
+            }
+            item, err := converters.To{{ .Entity }}Domain(req)
+            if err != nil { shared.WriteDomainError(w, err); return }
+            created, err := s.App.Create{{ .Entity }}(r.Context(), actor, item)
+            if err != nil { shared.WriteDomainError(w, err); return }
+            shared.WriteJSON(w, http.StatusCreated, converters.ToPublic{{ .Entity }}(created))
+        }
+
+        // update — READ-BEFORE-WRITE (never blind-overwrite: that turns PATCH into a full PUT)
+        func (s {{ .Entity }}Svc) update(w http.ResponseWriter, r *http.Request) {
+            actor, err := shared.ActorFromRequest(r.Context(), r)
+            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+            var req v1.Update{{ .Entity }}Request
+            // decode + validate as above ...
+            id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
+            item, err := s.App.Get{{ .Entity }}ByID(r.Context(), actor, id)         // load current state
+            if err != nil { shared.WriteDomainError(w, err); return }
+            // apply only the fields present in req, via domain SETTERS (not struct writes):
+            // if req.Name != nil { if err := item.SetName(*req.Name); err != nil { shared.WriteDomainError(w, err); return } }
+            updated, err := s.App.Update{{ .Entity }}(r.Context(), actor, item)
+            if err != nil { shared.WriteDomainError(w, err); return }
+            shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}(updated))
+        }
+
+        func (s {{ .Entity }}Svc) delete(w http.ResponseWriter, r *http.Request) {
+            actor, err := shared.ActorFromRequest(r.Context(), r)
+            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+            id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
+            if err := s.App.Delete{{ .Entity }}(r.Context(), actor, id); err != nil { shared.WriteDomainError(w, err); return }
+            w.WriteHeader(http.StatusNoContent)
+        }
+
+      (Imports get added by `goimports` on save. If you renamed the usecase methods,
+      call those names instead of Create/Update/Delete.)
+
+      TESTS: HTTP handlers are exercised e2e (tests/e2e-api/{{ .Entity | lower }}_test.go) against
+        Mock{{ .Entity }}Commands. After implementing, generate per-handler stubs:
           go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.create
-          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.update
-          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.delete
-
-      NEXT STEPS:
-        1. Implement handler methods (s.App.Create{{ .Entity }}, etc.) — the update
-           handler pattern: GetEntityByID → apply patch → UpdateEntity.
-        2. Routes are registered by inboundhttp.SetupRouter via Setup{{ .Entity }} —
-           no manual registration in wire_{{ .Entity | lower }}.go needed.
-        3. Write handler tests using the stubs above
-
-      NOTE: action routes added via add_http_action are auto-registered via init()
-      into the {{ .Entity | lower }}CommandsActions slice — no further wiring needed.
+        Cover per handler: happy path, 400 validation, 404 not-found, 403 authz.
 
   - command: add_http_queries
     description: Add HTTP query handlers (read operations) for an entity
@@ -886,29 +1100,51 @@ commands:
             | awk -v m="	Setup{{ .Entity }}(router, svc)" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
             | go-surgeon update-func --file internal/{{ .Context }}/inbound/http/queries/init.go --id SetupRouter
     hint: |
-      HTTP queries for {{ .Entity }} added.
+      HTTP query handlers for {{ .Entity }} added (route wiring + 501-stub bodies).
 
       Created:
-        internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go — GetByID, List handlers
+        internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go
+          {{ .Entity }}App ({{ .Entity }}Queries), {{ .Entity }}Svc, Setup{{ .Entity }}, the
+          query-registrar slice, and getByID/list handlers that currently return 501
 
       Updated (via go-surgeon):
-        internal/{{ .Context }}/inbound/http/queries/init.go
-          - App interface now embeds {{ .Entity }}App
-          - SetupRouter now calls Setup{{ .Entity }}(router, svc)
+        internal/{{ .Context }}/inbound/http/queries/init.go — App embeds {{ .Entity }}App;
+        SetupRouter calls Setup{{ .Entity }}(router, svc).
 
-      TESTS FOR THIS LAYER:
-        HTTP query handlers are tested at the e2e level (tests/e2e-api/{{ .Entity | lower }}_test.go).
-        They receive Mock{{ .Entity }}Queries so they never hit real infrastructure.
-        Cover per handler: happy path, not-found (404), empty list returns [] not null, cursor pagination.
-        Generate stubs after implementing the handlers:
+      ── DECIDE ───────────────────────────────────────────────────────────────────
+        • Does List need filters beyond cursor/limit (status, owner, date range, search)?
+          Parse them from r.URL.Query() and thread them through domain.ListParams (or a
+          richer params struct you add to the domain).
+        • Does the "detail" view differ from the list "summary"? Then ToPublic{{ .Entity }}
+          for the detail endpoint and a separate ToSummary{{ .Entity }} for list items.
+        • Extra read routes (e.g. /{{ .Entity | lower }}s/{id}/history)? Append via
+          {{ .Entity | lower }}QueriesActions (init() registrar).
+
+      ── HANDLER PATTERN (fill in getByID/list) ──────────────────────────────────
+
+        func (s {{ .Entity }}Svc) getByID(w http.ResponseWriter, r *http.Request) {
+            actor, err := shared.ActorFromRequest(r.Context(), r)
+            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+            id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
+            item, err := s.App.Get{{ .Entity }}ByID(r.Context(), actor, id)
+            if err != nil { shared.WriteDomainError(w, err); return }   // maps Err{{ .Entity }}NotFound → 404
+            shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}(item))
+        }
+
+        func (s {{ .Entity }}Svc) list(w http.ResponseWriter, r *http.Request) {
+            actor, err := shared.ActorFromRequest(r.Context(), r)
+            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+            params := domain.ListParams{Cursor: r.URL.Query().Get("cursor")}
+            if v := r.URL.Query().Get("limit"); v != "" { params.Limit, _ = strconv.Atoi(v) }
+            result, err := s.App.List{{ .Entity }}s(r.Context(), actor, params)
+            if err != nil { shared.WriteDomainError(w, err); return }
+            // ToPublic{{ .Entity }}List always emits items:[] (never null) — that's the contract.
+            shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}List(result))
+        }
+
+      TESTS: exercised e2e against Mock{{ .Entity }}Queries. After implementing:
           go-surgeon test -f internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.getByID
-          go-surgeon test -f internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.list
-
-      NEXT STEPS:
-        1. Implement handler methods (s.App.Get{{ .Entity }}ByID, s.App.List{{ .Entity }}s)
-        2. Routes are registered by inboundhttp.SetupRouter via Setup{{ .Entity }} —
-           no manual registration in wire_{{ .Entity | lower }}.go needed.
-        3. Write handler tests using the stubs above
+        Cover: happy path, 404, empty list returns [] not null, cursor advances across pages.
 
   - command: add_http_converter
     description: Add inbound converters between public API types and domain types
@@ -925,16 +1161,29 @@ commands:
     post_commands:
       - add_http_converter_test
     hint: |
-      Converters for {{ .Entity }} added.
+      HTTP converters for {{ .Entity }} added (skeleton — fill in the field mappings).
 
       Created:
-        internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go — domain <-> public type converters
+        internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go
+          ToPublic{{ .Entity }} / ToPublic{{ .Entity }}List / To{{ .Entity }}Domain — the
+          ID/CreatedAt mapping is wired; add the rest.
 
-      TESTS FOR THIS LAYER:
-        Converter tests are auto-generated by the add_http_converter_test post_command.
-        Generated file: internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}_test.go
-        Covers: ToPublic{{ .Entity }}, ToPublic{{ .Entity }}List, To{{ .Entity }}Domain.
-        When you add a new converter function, generate its test stub:
+      ── FIELD-MAPPING RULES ─────────────────────────────────────────────────────
+        domain → response (ToPublic{{ .Entity }}): one line per exposed field, via its getter.
+          typed ID  → string(item.XxxID())
+          time.Time → item.CreatedAt().Format(time.RFC3339)
+          Money     → split: Amount: item.Price().Amount(), Currency: item.Price().Currency()
+          enum      → item.Status().String()  (or whatever your enum exposes)
+          Keep internal-only fields OUT of the response.
+
+        request → domain (To{{ .Entity }}Domain): pass req fields to New{{ .Entity }} in the
+          constructor's argument order, converting primitives to value types first:
+            return domain.New{{ .Entity }}(req.Name, domain.NewMoney(req.Amount, req.Currency))
+          Returning the constructor's (*T, error) directly is fine — it does the validation.
+
+      TESTS: stubs are auto-generated by the add_http_converter_test post_command (it ran
+        just now) — pure unit tests, no mocks. Fill in: field-mapping correctness, zero
+        values, boundary values. For a new converter function you add later:
           go-surgeon test -f internal/{{ .Context }}/inbound/http/converters/{{ .Entity | lower }}.go -i <FunctionName>
 
   - command: add_http_converter_test
@@ -976,7 +1225,16 @@ commands:
       - add_http_queries
       - add_http_converter
     hint: |
-      Full HTTP handler for {{ .Entity }} added (commands + queries + converters).
+      Full HTTP surface for {{ .Entity }} added: commands + queries + converters (the
+      three sub-command hints with the handler patterns were just printed above).
+
+      What you got: route wiring (Setup{{ .Entity }} hooked into SetupRouter), the
+      {{ .Entity }}Svc/{{ .Entity }}App types, and 501-stub handler bodies + skeleton
+      converters. Nothing is implemented — fill it in from the printed hints.
+
+      DECIDE: pure CRUD, or a state machine? For the latter, drop PUT/DELETE
+      (scaffold add_http_commands with EntityHasActions=true) and model transitions
+      with add_http_action. Does List need filters beyond cursor/limit? Add them.
 
   - command: add_http_action
     description: Add an HTTP action endpoint (non-CRUD state transition, e.g. pay, cancel, fulfill)
@@ -993,35 +1251,38 @@ commands:
       - source: internal/context/inbound/http/commands/entity_action.go.tmpl
         destination: internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}_{{ .Action | lower }}.go
     hint: |
-      HTTP action endpoint {{ .Action }} for {{ .Entity }} added.
+      HTTP action endpoint {{ .Action }} for {{ .Entity }} added (route auto-registered, 501 stub).
 
       Created:
         internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}_{{ .Action | lower }}.go
-
       Route: POST /api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}/{{ .Action | lower }}
+      Auto-registered via init() into {{ .Entity | lower }}CommandsActions — Setup{{ .Entity }}
+      picks it up; no edit to wire_{{ .Entity | lower }}.go.
 
-      TESTS FOR THIS LAYER:
-        Three test files to update when you add this action:
-          1. App unit test — add a stub for the new app service method:
-               go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.{{ .Action }}{{ .Entity }}
-          2. HTTP handler test — add a stub for the action handler:
-               go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}_{{ .Action | lower }}.go -i {{ .Action | lower }}{{ .Entity }}Handler
-          3. E2E test — add a scenario to tests/e2e-api/{{ .Entity | lower }}_test.go covering
-               the full action lifecycle (e.g. place order → pay → assert status=paid)
-        Also add {{ .Action }}{{ .Entity }} to the Mock{{ .Entity }}Commands after updating the interface:
-          scaffor execute go-hexagonal add_usecase_mock --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+      ── WIRE IT UP (4 places) ────────────────────────────────────────────────────
+        1. Domain: add the transition method on the entity (it enforces the source state):
+             func (e *{{ .Entity }}) {{ .Action }}() error { if e.status != ... { return Err{{ .Entity }}... }; e.status = ...; e.updatedAt = time.Now(); return nil }
+        2. Usecase: add  {{ .Action }}{{ .Entity }}(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error)
+           to the {{ .Entity }}Commands interface, then regenerate the mock:
+             scaffor execute go-hexagonal add_usecase_mock --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+        3. App: implement it (load → entity.{{ .Action }}() → repo.Update) — see the add_app_service hint's action example.
+        4. Handler ({{ .Action | lower }} method in this file):
+             func (s {{ .Entity }}Svc) {{ .Action | lower }}(w http.ResponseWriter, r *http.Request) {
+                 actor, err := shared.ActorFromRequest(r.Context(), r)
+                 if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+                 id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
+                 // if the action has a body: decode+validate a v1.{{ .Action }}{{ .Entity }}Request via s.Validator first
+                 updated, err := s.App.{{ .Action }}{{ .Entity }}(r.Context(), actor, id)
+                 if err != nil { shared.WriteDomainError(w, err); return }
+                 shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}(updated))   // or http.StatusNoContent for side-effect-only
+             }
 
-      NEXT STEPS:
-        1. Add {{ .Action }}{{ .Entity }}(ctx, actor, id) to {{ .Entity }}Commands interface
-        2. Implement in the app service
-        3. Generate test stubs (commands above)
+      TESTS: app unit-test stub (go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.{{ .Action }}{{ .Entity }}),
+        handler stub (go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}_{{ .Action | lower }}.go -i {{ .Entity }}Svc.{{ .Action | lower }}),
+        plus an e2e scenario for the full lifecycle (place → {{ .Action | lower }} → assert state).
 
-      The route is auto-registered via init() in the generated file — Setup{{ .Entity }}
-      picks it up automatically, no changes to wire_{{ .Entity | lower }}.go needed.
-
-      NOTE: each action creates a separate file. For entities with many actions (pay,
-      cancel, fulfill, refund), consider consolidating into a single {{ .Entity | lower }}_actions.go
-      by moving the generated handlers there and deleting the per-action files.
+      NOTE: one file per action. For an entity with many (pay, cancel, fulfill, refund),
+      fold them into one {{ .Entity | lower }}_actions.go and delete the per-action files.
 
   - command: add_grpc_commands
     description: Add gRPC command handlers (write operations) for an entity
@@ -1036,16 +1297,29 @@ commands:
       - source: internal/context/inbound/grpc/commands/entity.go.tmpl
         destination: internal/{{ .Context }}/inbound/grpc/commands/{{ .Entity | lower }}.go
     hint: |
-      gRPC commands for {{ .Entity }} added.
+      gRPC command handler skeleton for {{ .Entity }} added.
 
       Created:
-        internal/{{ .Context }}/inbound/grpc/commands/{{ .Entity | lower }}.go — gRPC write operation stubs
+        internal/{{ .Context }}/inbound/grpc/commands/{{ .Entity | lower }}.go
+          {{ .Entity | lower }}Handler{commands} + Setup{{ .Entity }}Services — empty until proto stubs exist.
 
-      NEXT STEPS:
-        1. Define command RPCs in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
-        2. Run protoc to generate Go code into pkg/{{ .Context }}/grpc/
-        3. Implement command methods (h.commands.Create{{ .Entity }}, etc.)
-        4. Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration needed
+      ── BUILD IT OUT ─────────────────────────────────────────────────────────────
+        1. Decide the RPCs (mirror {{ .Entity }}Commands; use real names if your domain
+           has them — PlaceOrder, not CreateOrder). Define them in
+           pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto (add_grpc_proto scaffolds the file).
+        2. Run protoc (see the Makefile) → pkg/{{ .Context }}/grpc/*.pb.go.
+        3. Register the server in Setup{{ .Entity }}Services:  pb.Register{{ .Entity }}CommandsServer(srv, h)
+        4. One handler method per RPC:
+             func (h *{{ .Entity | lower }}Handler) Create{{ .Entity }}(ctx context.Context, req *pb.Create{{ .Entity }}Request) (*pb.Create{{ .Entity }}Response, error) {
+                 actor, err := grpc.ActorFromContext(ctx)
+                 if err != nil { return nil, status.Error(codes.Unauthenticated, err.Error()) }
+                 item, err := converters.To{{ .Entity }}Domain(req)
+                 if err != nil { return nil, status.Error(codes.InvalidArgument, err.Error()) }
+                 created, err := h.commands.Create{{ .Entity }}(ctx, actor, item)
+                 if err != nil { return nil, mapDomainErr(err) }   // map Err{{ .Entity }}NotFound → codes.NotFound, etc.
+                 return &pb.Create{{ .Entity }}Response{Item: converters.ToProto{{ .Entity }}(created)}, nil
+             }
+        Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration.
 
   - command: add_grpc_queries
     description: Add gRPC query handlers (read operations) for an entity
@@ -1060,16 +1334,25 @@ commands:
       - source: internal/context/inbound/grpc/queries/entity.go.tmpl
         destination: internal/{{ .Context }}/inbound/grpc/queries/{{ .Entity | lower }}.go
     hint: |
-      gRPC queries for {{ .Entity }} added.
+      gRPC query handler skeleton for {{ .Entity }} added.
 
       Created:
-        internal/{{ .Context }}/inbound/grpc/queries/{{ .Entity | lower }}.go — gRPC read operation stubs
+        internal/{{ .Context }}/inbound/grpc/queries/{{ .Entity | lower }}.go
+          {{ .Entity | lower }}Handler{queries} + Setup{{ .Entity }}Services — empty until proto stubs exist.
 
-      NEXT STEPS:
-        1. Define query RPCs in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
-        2. Run protoc to generate Go code into pkg/{{ .Context }}/grpc/
-        3. Implement query methods (h.queries.Get{{ .Entity }}ByID, etc.)
-        4. Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration needed
+      ── BUILD IT OUT ─────────────────────────────────────────────────────────────
+        1. Define the GetByID/List RPCs in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto.
+        2. Run protoc → pkg/{{ .Context }}/grpc/*.pb.go.
+        3. Register the server in Setup{{ .Entity }}Services:  pb.Register{{ .Entity }}QueriesServer(srv, h)
+        4. One handler method per RPC:
+             func (h *{{ .Entity | lower }}Handler) Get{{ .Entity }}ByID(ctx context.Context, req *pb.Get{{ .Entity }}ByIDRequest) (*pb.Get{{ .Entity }}ByIDResponse, error) {
+                 actor, err := grpc.ActorFromContext(ctx)
+                 if err != nil { return nil, status.Error(codes.Unauthenticated, err.Error()) }
+                 item, err := h.queries.Get{{ .Entity }}ByID(ctx, actor, domain.{{ .Entity }}ID(req.Id))
+                 if err != nil { return nil, mapDomainErr(err) }
+                 return &pb.Get{{ .Entity }}ByIDResponse{Item: converters.ToProto{{ .Entity }}(item)}, nil
+             }
+        Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration.
 
   - command: add_grpc_converter
     description: Add gRPC converters between proto types and domain types
@@ -1084,10 +1367,21 @@ commands:
       - source: internal/context/inbound/grpc/converters/entity.go.tmpl
         destination: internal/{{ .Context }}/inbound/grpc/converters/{{ .Entity | lower }}.go
     hint: |
-      gRPC converters for {{ .Entity }} added.
+      gRPC converter skeleton for {{ .Entity }} added.
 
       Created:
-        internal/{{ .Context }}/inbound/grpc/converters/{{ .Entity | lower }}.go — proto <-> domain converters
+        internal/{{ .Context }}/inbound/grpc/converters/{{ .Entity | lower }}.go
+          ToProto{{ .Entity }} placeholder (returns nothing yet — proto stubs don't exist).
+
+      ── ONCE protoc HAS RUN ──────────────────────────────────────────────────────
+        - Change ToProto{{ .Entity }}'s return type to *pb.{{ .Entity }} and populate every field:
+            typed ID  → string(item.XxxID())
+            time.Time → timestamppb.New(item.CreatedAt())
+            Money     → &pb.Money{Amount: ..., Currency: ...}
+            enum      → pb.{{ .Entity }}Status(int32(item.Status()))
+        - Add  To{{ .Entity }}Domain(req *pb.Create{{ .Entity }}Request) (*domain.{{ .Entity }}, error)  —
+          same role as the HTTP converter's: pass req fields to New{{ .Entity }} in order,
+          converting primitives to domain value types first.
 
   - command: add_grpc_handler
     description: Add both gRPC command and query handlers for an entity with converters
@@ -1141,17 +1435,29 @@ commands:
       - source: internal/context/inbound/cli/commands/entity.go.tmpl
         destination: internal/{{ .Context }}/inbound/cli/commands/{{ .Entity | lower }}.go
     hint: |
-      CLI commands for {{ .Entity }} added.
+      CLI command sub-commands for {{ .Entity }} added (cobra wiring + "not implemented" RunE bodies).
 
       Created:
-        internal/{{ .Context }}/inbound/cli/commands/{{ .Entity | lower }}.go — create, update, delete cobra sub-commands
+        internal/{{ .Context }}/inbound/cli/commands/{{ .Entity | lower }}.go
+          Setup{{ .Entity }}Cmds (the `{{ .Entity | lower }}` group) + create/update/delete sub-commands.
 
-      NEXT STEPS:
-        1. Bind cobra flags to request fields inside createCmd() and updateCmd() (see TODO comments)
-        2. Implement handler logic (converters + usecase calls) in each RunE
-        3. Wire in cmd/{{ .Context }}-cli/main.go:
-             clicommands.Setup{{ .Entity }}Cmds(root, a)
-        4. Test: go run ./cmd/{{ .Context }}-cli {{ .Entity | lower }} create --help
+      ── BUILD IT OUT ─────────────────────────────────────────────────────────────
+        1. Decide the sub-commands and flags. CRUD by default; a state-machine entity
+           might want `{{ .Entity | lower }} pay <id>` / `cancel <id>` instead of `update`.
+        2. Bind flags to the request fields:
+             cmd.Flags().StringVar(&req.Name, "name", "", "{{ .Entity }} name (required)")
+             cmd.MarkFlagRequired("name")
+        3. Implement each RunE. Pattern (create):
+             actor := /* build a *domain.Actor — from a --actor flag, env, or a config block */
+             item, err := converters.To{{ .Entity }}Domain(req)
+             if err != nil { return err }
+             created, err := h.svc.Create{{ .Entity }}(cmd.Context(), actor, item)
+             if err != nil { return err }   // cobra prints it to stderr
+             return shared.WriteJSON(converters.ToPublic{{ .Entity }}(created))
+           update is read-before-write: Get{{ .Entity }}ByID → apply patch via domain setters → Update{{ .Entity }}.
+           delete: id := domain.{{ .Entity }}ID(args[0]); h.svc.Delete{{ .Entity }}(cmd.Context(), actor, id); shared.WriteDeleted(args[0]).
+        4. Wire in cmd/{{ .Context }}-cli/main.go:  clicommands.Setup{{ .Entity }}Cmds(root, a)
+        5. Smoke: go run ./cmd/{{ .Context }}-cli {{ .Entity | lower }} create --help
 
   - command: add_cli_queries
     description: Add CLI query handlers (read operations) for an entity using Cobra
@@ -1166,19 +1472,27 @@ commands:
       - source: internal/context/inbound/cli/queries/entity.go.tmpl
         destination: internal/{{ .Context }}/inbound/cli/queries/{{ .Entity | lower }}.go
     hint: |
-      CLI queries for {{ .Entity }} added.
+      CLI query sub-commands for {{ .Entity }} added (cobra wiring + "not implemented" RunE bodies).
 
       Created:
-        internal/{{ .Context }}/inbound/cli/queries/{{ .Entity | lower }}.go — get, list cobra sub-commands
+        internal/{{ .Context }}/inbound/cli/queries/{{ .Entity | lower }}.go
+          Setup{{ .Entity }}Queries (adds `get` + `list` to the `{{ .Entity | lower }}` group,
+          creating the group if Setup{{ .Entity }}Cmds hasn't — no duplicates).
 
-      NEXT STEPS:
-        1. Implement handler logic (converters + usecase calls) in each RunE
-        2. Wire in cmd/{{ .Context }}-cli/main.go:
-             cliqueries.Setup{{ .Entity }}Queries(root, a)
-        3. Test: go run ./cmd/{{ .Context }}-cli {{ .Entity | lower }} list --help
+      ── IMPLEMENT THE RunE BODIES ────────────────────────────────────────────────
+        Build a *domain.Actor in the entry point (or per-command from a flag/env) and
+        thread it through — the usecase methods take it, same as HTTP/gRPC.
+          get:  id := domain.{{ .Entity }}ID(args[0])
+                item, err := h.queries.Get{{ .Entity }}ByID(cmd.Context(), actor, id)
+                if err != nil { return err }
+                return shared.WriteJSON(converters.ToPublic{{ .Entity }}(item))
+          list: params := domain.ListParams{Cursor: cursor, Limit: limit}   // already bound to --cursor/--limit
+                result, err := h.queries.List{{ .Entity }}s(cmd.Context(), actor, params)
+                if err != nil { return err }
+                return shared.WriteJSON(converters.ToPublic{{ .Entity }}List(result))
 
-      NOTE: Setup{{ .Entity }}Queries merges into the existing "{{ .Entity | lower }}" sub-command group
-      if Setup{{ .Entity }}Cmds already added it — no duplicate groups.
+      Wire in cmd/{{ .Context }}-cli/main.go:  cliqueries.Setup{{ .Entity }}Queries(root, a)
+      Smoke: go run ./cmd/{{ .Context }}-cli {{ .Entity | lower }} list --help
 
   - command: add_cli_handler
     description: Add both CLI command and query handlers for an entity
@@ -1408,15 +1722,30 @@ commands:
       - source: pkg/context/http/v1/entity.go.tmpl
         destination: pkg/{{ .Context }}/http/v1/{{ .Entity | lower }}.go
     hint: |
-      Public types for {{ .Entity }} added.
+      Public HTTP types for {{ .Entity }} added (empty starter structs — define the fields).
 
       Created:
-        pkg/{{ .Context }}/http/v1/{{ .Entity | lower }}.go — CreateRequest, UpdateRequest, Response, ListResponse structs
+        pkg/{{ .Context }}/http/v1/{{ .Entity | lower }}.go
+          Create{{ .Entity }}Request{} / Update{{ .Entity }}Request{} (+ Validate()),
+          {{ .Entity }}Response{ID, CreatedAt}, {{ .Entity }}ListResponse{Items, NextCursor}
 
-      NEXT STEPS:
-        1. Customize request/response fields to match your API design
-        2. Add converters:
-           scaffor execute go-hexagonal add_http_converter --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+      ── ADD THE FIELDS ──────────────────────────────────────────────────────────
+        Requests — one field per attribute, with json + validate tags. Validation runs
+        in handlers via validator.Struct(req), so EVERY shape constraint you care about
+        must be a tag here (the domain re-checks business rules, not field shapes):
+          Name   string `json:"name"   validate:"required,min=1,max=255"`
+          Amount int64  `json:"amount" validate:"required,gt=0"`
+          Status string `json:"status" validate:"omitempty,oneof=draft active archived"`
+        Update — prefer pointer fields for partial updates so "absent" ≠ "zero":
+          Name *string `json:"name,omitempty" validate:"omitempty,min=1,max=255"`
+        Response — one field per exposed attribute, JSON-safe types only:
+          Name     string `json:"name"`
+          Amount   int64  `json:"amount"`
+          Currency string `json:"currency"`
+        (Time → RFC3339 string; typed IDs → string; never embed domain types.)
+
+      NEXT: add the converters that map these <-> domain:
+        scaffor execute go-hexagonal add_http_converter --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
 
   - command: add_consumed_event
     description: Add a consumed event type (events this context receives)
@@ -1653,19 +1982,29 @@ commands:
     hint: |
       Full entity {{ .Entity }} scaffolded across all layers of {{ .Context }}.
 
+      Heads-up: the domain entity (domain/{{ .Entity | lower }}.go) and the app
+      service (app/{{ .Entity | lower }}.go) are near-empty by design — you fill
+      them in. The repository interface/adapter, usecase interfaces, HTTP handlers
+      and public types come with a working CRUD starting point you adapt. See each
+      sub-command's hint (they were all just printed above) for the worked examples.
+
       WIRING (already done):
         internal/{{ .Context }}/wire_{{ .Entity | lower }}.go registers the entity's adapters
         AND inbound HTTP routes via init() — Setup() picks them up automatically.
         No edits to init.go needed. Handlers receive usecase interfaces, not *app.App.
 
-      NEXT STEPS:
+      NEXT STEPS (roughly in order):
         1. Add the {{ .Entity | lower }}Repo field to the App struct in app/config.go
-        2. Define {{ .Entity }} fields in domain/{{ .Entity | lower }}.go
-        3. Customize repository and service interface methods
-        4. Adjust SQL columns in the repository adapter to match your entity fields
-        5. Implement the app service business logic
-        6. Implement the HTTP handler and converters
-        7. Write failing tests (red phase), then implement (green phase)
+        2. Define {{ .Entity }}'s fields / setters / errors in domain/{{ .Entity | lower }}.go
+           (from the add_domain_entity hint) — and update Reconstitute{{ .Entity }} +
+           New{{ .Entity }} signatures everywhere they're used
+        3. Rename the CRUD methods on {{ .Entity }}Commands/{{ .Entity }}Queries to your
+           ubiquitous language, regenerate the mock (add_usecase_mock), update contract.go
+        4. Write the app service methods in app/{{ .Entity | lower }}.go (from the add_app_service hint)
+        5. Add the SQL columns in the repository adapter (+ scope filter if multi-tenant)
+        6. Implement the HTTP handler bodies and converters
+        7. Generate test stubs for what you wrote (add_app_unit_test / add_app_service_contract_test
+           print the procedure), red → green
 
       IF YOU USE UnitOfWork:
         UoW is per-context, not per-entity — add_entity does NOT scaffold it.

@@ -1,3 +1,21 @@
+// Package {{ .Entity | lower }}uc — the inbound ports for {{ .Entity }} (what the
+// outside world can ask this bounded context to do with a {{ .Entity }}).
+//
+// Two interfaces, split CQRS-style:
+//   {{ .Entity }}Commands — write operations (mutate state)
+//   {{ .Entity }}Queries  — read operations (must be side-effect free)
+// Both are implemented by *app.App and consumed by inbound handlers (HTTP/gRPC/CLI/
+// event consumers). Handlers depend on these interfaces, never on *app.App.
+//
+// Conventions:
+//   - Method names are entity-prefixed (Create{{ .Entity }}, …) so one *App can
+//     implement Commands+Queries for many entities without collision.
+//   - First parameter after ctx is always `actor *domain.Actor` — the scope. No
+//     bare tenantID, ever.
+//   - The CRUD set below is a STARTING POINT. Rename to your ubiquitous language
+//     (PlaceOrder, PayOrder, CancelOrder — not Create/Update/Delete) and add the
+//     operations the domain actually has. After any change: regenerate the mock
+//     (`add_usecase_mock`) and update {{ .Entity | lower }}uctest/contract.go.
 package {{ .Entity | lower }}uc
 
 import (
@@ -6,24 +24,14 @@ import (
 	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
 )
 
-// {{ .Entity }}Commands is the inbound port for write operations.
-// Implemented by app/, consumed by inbound handlers.
-//
-// Convention: Commands mutate state, Queries read it — never mix the two.
-// Methods are prefixed with the entity name so that a single *App struct
-// can implement Commands + Queries for multiple entities without collision.
-// Rename methods to reflect the ubiquitous language of your domain
-// (e.g. PlaceOrder, PayOrder instead of Create{{ .Entity }}, Update{{ .Entity }}).
+// {{ .Entity }}Commands is the inbound port for {{ .Entity }} write operations.
 type {{ .Entity }}Commands interface {
 	Create{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error)
 	Update{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error)
 	Delete{{ .Entity }}(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) error
 }
 
-// {{ .Entity }}Queries is the inbound port for read operations.
-// Implemented by app/, consumed by inbound handlers.
-//
-// Convention: Queries must never produce side-effects or call Commands methods.
+// {{ .Entity }}Queries is the inbound port for {{ .Entity }} read operations.
 type {{ .Entity }}Queries interface {
 	Get{{ .Entity }}ByID(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error)
 	List{{ .Entity }}s(ctx context.Context, actor *domain.Actor, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error)

@@ -1,3 +1,27 @@
+// Package domain — file actor.go
+//
+// PURPOSE
+//   The Actor: the authenticated identity on whose behalf an operation runs.
+//   It is the SINGLE parameter every app/usecase/repository method takes for
+//   "who is doing this and what may they touch" — never a bare tenantID, never
+//   pulled from context.Context. Inbound adapters build it from protocol-specific
+//   sources (HTTP headers, gRPC metadata, JWT, session) and pass it explicitly.
+//
+// THIS TEMPLATE IS DELIBERATELY MINIMAL — Actor here is just {id}. Authorization
+//   models vary too much to guess. Before adding fields, answer the questions in
+//   the `add_context` hint and copy the matching block from there:
+//
+//     • Is there a tenant / org / workspace?   → add  tenantID TenantID  + getter,
+//       require it in NewActor, and have repositories scope on actor.TenantID().
+//     • Are there roles / permissions?          → add  roles []string  (simple RBAC:
+//       AddRole/HasRole) or a typed permission set with a Can(Permission) predicate.
+//     • Is there a sub-tenant grouping?         → add  teamID / groupID  (TeamID typed),
+//       e.g. for "members of team X within org Y".
+//     • Is the actor a human, a service, or both? → add an actorKind enum if the
+//       domain treats service callers differently (skip rate limits, broader scope…).
+//
+//   Keep every new field unexported and expose narrow predicate getters, never the
+//   slice/map itself — so no caller can mutate the authorization state.
 package domain
 
 import "github.com/google/uuid"
@@ -7,66 +31,36 @@ import "github.com/google/uuid"
 // Format: UUIDv7 as string — time-ordered, DB-friendly (see TenantID doc).
 type ActorID string
 
-// NewActorID generates a new time-ordered UUIDv7 ActorID.
+// NewActorID generates a new time-ordered UUIDv7 ActorID. Delete this if actor
+// ids come from an external IdP rather than being minted here.
 func NewActorID() ActorID {
 	return ActorID(uuid.Must(uuid.NewV7()).String())
 }
 
-// Domain errors for Actor — defined as package-level vars for testability
-// (tests can use errors.Is or direct comparison).
+// Domain errors for Actor — package-level vars so tests can use errors.Is.
+// Add ErrActorUnauthorized / ErrActorTenantRequired / etc. as the model grows
+// (see the `add_context` hint).
 var (
-	ErrActorNotFound       = NewError("ACTOR_NOT_FOUND", "actor not found")
-	ErrActorUnauthorized   = NewError("ACTOR_UNAUTHORIZED", "actor is not authorized")
-	ErrActorIDRequired     = NewError("ACTOR_ID_REQUIRED", "actor id is required")
-	ErrActorTenantRequired = NewError("ACTOR_TENANT_ID_REQUIRED", "actor tenant id is required")
+	ErrActorNotFound   = NewError("ACTOR_NOT_FOUND", "actor not found")
+	ErrActorIDRequired = NewError("ACTOR_ID_REQUIRED", "actor id is required")
 )
 
 // Actor represents the authenticated identity performing an action.
-// Extracted from protocol-specific sources (HTTP headers, gRPC metadata)
-// by inbound adapters and passed explicitly to app/domain — never via context.
+// Extend with the fields your authorization model needs — see the file header
+// and the `add_context` hint for ready-made blocks (tenant, roles, team, kind).
 type Actor struct {
-	id       ActorID
-	tenantID TenantID
-	roles    []string
-	// TODO(scaffolding): add richer authorization attributes the domain will inspect —
-	// typed roles, permissions, or a scope set. Keep them unexported and expose predicate
-	// getters like Can(Permission). The default `roles []string` handles simple RBAC via
-	// AddRole / HasRole; upgrade to typed roles when the authorization model grows.
+	id ActorID
 }
 
-// NewActor creates a validated Actor.
-func NewActor(id ActorID, tenantID TenantID) (*Actor, error) {
+// NewActor creates a validated Actor. Add the parameters and checks your model
+// requires (e.g. a tenantID that must be non-empty) — see the hint.
+func NewActor(id ActorID) (*Actor, error) {
 	if id == "" {
 		return nil, ErrActorIDRequired
 	}
-	if tenantID == "" {
-		return nil, ErrActorTenantRequired
-	}
-	return &Actor{
-		id:       id,
-		tenantID: tenantID,
-		roles:    []string{},
-	}, nil
+	return &Actor{id: id}, nil
 }
 
 // --- Getters ---
 
-func (a *Actor) ID() ActorID        { return a.id }
-func (a *Actor) TenantID() TenantID { return a.tenantID }
-
-// AddRole appends a role to the actor's role set (duplicates are allowed —
-// HasRole still reports true). Called by inbound adapters after extracting
-// role claims from headers, JWT, or session.
-func (a *Actor) AddRole(role string) {
-	a.roles = append(a.roles, role)
-}
-
-// HasRole reports whether the actor has been granted the given role.
-func (a *Actor) HasRole(role string) bool {
-	for _, r := range a.roles {
-		if r == role {
-			return true
-		}
-	}
-	return false
-}
+func (a *Actor) ID() ActorID { return a.id }

@@ -1,3 +1,17 @@
+// Package converters — file {{ .Entity | lower }}.go ({{ .Entity }} HTTP <-> domain mapping)
+//
+// PURPOSE
+//   Translate between the public HTTP DTOs (pkg/{{ .Context }}/http/v1) and the domain
+//   type. Two directions:
+//     - ToPublic{{ .Entity }} / ToPublic{{ .Entity }}List — domain → response (uses getters,
+//       since domain fields are unexported)
+//     - To{{ .Entity }}Domain — request → a validated domain entity (calls New{{ .Entity }})
+//   This is also the place to keep the wire format stable while the domain evolves
+//   (rename a domain field without touching the JSON).
+//
+// THE BODIES ARE SKELETONS. Fill them from the `add_http_converter` hint, which
+//   shows the field-mapping rules (typed IDs → string(...), time.Time → RFC3339,
+//   Money → amount/currency split, enums → their string form).
 package converters
 
 import (
@@ -7,16 +21,12 @@ import (
 	v1 "{{ .ModulePath }}/pkg/{{ .Context }}/http/v1"
 )
 
-// ToPublic{{ .Entity }} converts a domain object into an API response.
-// Uses getters since domain fields are unexported.
+// ToPublic{{ .Entity }} converts a domain {{ .Entity }} into an API response.
+// Add one line per exposed field — see the add_http_converter hint.
 func ToPublic{{ .Entity }}(item *domain.{{ .Entity }}) v1.{{ .Entity }}Response {
 	return v1.{{ .Entity }}Response{
 		ID:        string(item.ID()),
 		CreatedAt: item.CreatedAt().Format(time.RFC3339),
-		// TODO(scaffolding): map every public domain field via its getter (item.Name(), etc.)
-		// into the matching v1.{{ .Entity }}Response field. Format time fields with RFC3339,
-		// Money with Amount/Currency split, typed IDs with string(...) cast.
-		// Required before any handler response test passes — missing fields yield partial JSON.
 	}
 }
 
@@ -32,18 +42,9 @@ func ToPublic{{ .Entity }}List(result *domain.ListResult[*domain.{{ .Entity }}])
 	}
 }
 
-// To{{ .Entity }}Domain converts a Create{{ .Entity }}Request into a new domain object.
-// Called by command handlers before passing to the app service.
-// TODO(scaffolding): pass the matching request fields to domain.New{{ .Entity }} in the
-// exact order the constructor expects. Convert primitive request fields into domain value
-// types before passing (domain.Money, domain.{{ .Entity }}ID, etc.) so the constructor
-// sees already-validated values.
-// Required before the POST handler can build a domain entity — returns nil otherwise and
-// downstream usecase calls will panic.
+// To{{ .Entity }}Domain builds a new domain {{ .Entity }} from a create request.
+// Pass the request fields to New{{ .Entity }} in the constructor's argument order,
+// converting primitives to domain value types first — see the add_http_converter hint.
 func To{{ .Entity }}Domain(req v1.Create{{ .Entity }}Request) (*domain.{{ .Entity }}, error) {
-	return domain.New{{ .Entity }}(
-	// TODO(scaffolding): list req fields here in constructor order, e.g.:
-	//   req.Name,
-	//   domain.NewMoney(req.Amount, req.Currency),
-	)
+	return domain.New{{ .Entity }}()
 }

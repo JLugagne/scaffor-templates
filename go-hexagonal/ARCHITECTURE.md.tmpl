@@ -111,18 +111,27 @@ lives in `init.go` and companion `wire_*.go` files:
 - **Multi-binary support** — `cmd/worker/main.go` or `cmd/migrator/main.go`
   can reuse the same bounded context with a different entry point.
 
-### Actor as explicit parameter
+### Actor as the only scoping parameter
 
-`domain.Actor` represents the authenticated identity (actor ID + tenant ID).
-It is **never** stored in context. Instead it is:
+`domain.Actor` represents the authenticated identity. The scaffold ships it
+**minimal — just an `id`** — because authorization models vary too much to
+guess one. You extend it (tenant/org, roles, team, kind) to fit your system;
+the `add_context` hint carries ready-made blocks and the questions to answer.
 
-1. Extracted from the HTTP request (header/token) by `shared.ActorFromRequest`
-2. Passed explicitly to every usecase method: `Create(ctx, actor, ...)`
-3. Used by `app/` to get the `TenantID` for repository scoping
+The rule, regardless of what fields you add: every app / usecase / repository
+method takes `actor *domain.Actor` as its first parameter after `context` —
+**never** a bare `tenantID`, and **never** pulled from `context.Context`.
 
-This makes authorization visible in every call chain. You can't accidentally
-bypass it by forgetting to populate the context. Tests construct an `Actor`
-directly — no middleware setup needed.
+1. Built from the request (header/token) by `shared.ActorFromRequest` (HTTP) or
+   `ActorFromContext` (gRPC) — the scaffold's default trusts an `X-Actor-ID`
+   header; replace with JWT/session validation for internet-facing services.
+2. Passed explicitly to every usecase method: `Create{Entity}(ctx, actor, ...)`.
+3. The adapter pulls from it whatever it needs to scope a query (e.g.
+   `actor.TenantID()` for `WHERE tenant_id = $1`, `actor.HasRole(...)` for
+   row-level visibility).
+
+This makes authorization visible in every call chain — you can't bypass it by
+forgetting to populate context. Tests construct an `Actor` directly.
 
 ### Config is isolated
 
@@ -194,9 +203,17 @@ embeds every `<Entity>App`, so `*app.App` satisfies it automatically. The
 composition root passes `*app.App` once to `inboundhttp.SetupRouter` —
 no per-entity inbound wiring lives in `wire_*.go`.
 
-### Domain entities are opaque
+### Domain entities are opaque (and scaffolded near-empty)
 
-Entity structs have **unexported fields** with getters and setters:
+`add_domain_entity` and `add_app_service` deliberately generate almost no code —
+just the typed ID, a bare struct, the constructor signature, and a header doc.
+Generated CRUD bodies were removed because they pinned a shape real domains
+rarely keep; you build the entity from the command's hint, which carries a
+condensed worked example and the questions to answer first (which fields? which
+are mutable? a state machine? a parent aggregate?).
+
+Whatever you write, follow the opaque-entity pattern — **unexported fields**,
+getters to read, setters that validate to mutate:
 
 ```go
 type Order struct {
@@ -205,33 +222,39 @@ type Order struct {
     createdAt time.Time
 }
 
-func (o *Order) ID() OrderID          { return o.id }
+func (o *Order) ID() OrderID                   { return o.id }
 func (o *Order) SetStatus(s OrderStatus) error { ... } // validates
-func NewOrder(...) (*Order, error)     { ... }          // validates
-func ReconstituteOrder(...) *Order     { ... }          // DB hydration, no validation
+func NewOrder(...) (*Order, error)             { ... } // validates
+func ReconstituteOrder(...) *Order             { ... } // DB hydration, no validation
 ```
 
 - `New*` constructors validate invariants and return `(*T, error)`.
-- `Set*` methods validate and return `error` (domain errors).
-- `Reconstitute*` functions are for adapter-level hydration from DB rows —
-  they skip validation because the data was already valid when persisted.
+- `Set*` methods validate, return a domain error, and bump `updatedAt`.
+- `Reconstitute*` is for adapter-level hydration from DB rows — no validation,
+  the data was valid when persisted. Its signature must agree with the
+  repository adapter's `Scan` order.
 
-This keeps all business rules in the domain. No adapter can create an entity
-in an invalid state.
+No adapter can create an entity in an invalid state.
 
 ### Repository scoping (IDOR protection)
 
-Every repository method takes `TenantID` as its first parameter after
+Every repository method takes `actor *domain.Actor` as its first parameter after
 `context`:
 
 ```go
-FindByID(ctx context.Context, tenantID TenantID, id EntityID) (*Entity, error)
+FindByID(ctx context.Context, actor *domain.Actor, id EntityID) (*Entity, error)
 ```
 
-This makes tenant isolation impossible to forget. The `app/` layer extracts
-`actor.TenantID()` and passes it down. SQL queries always include
-`WHERE tenant_id = $1`. There is no "get all across tenants" method —
-by design.
+Passing the whole `Actor` (not a bare `tenantID`) keeps the scoping boundary in
+one place and lets it evolve without churning every signature. The adapter
+extracts what it needs from the actor.
+
+The scaffolded adapter SQL is **single-tenant by default** (no scope filter) —
+fewer moving parts when you don't need one. If your system is multi-tenant:
+add a `tenantID` field to `domain.Actor`, a `tenant_id` column + index in the
+migration, and `AND tenant_id = $N` to every statement in the adapter (the
+adapter file's header has the checklist). The repo contract test ships explicit
+out-of-scope cases — enable them once scoping is in; they are your IDOR guard.
 
 ### Repository adapter pattern (pgx)
 
@@ -246,23 +269,21 @@ type DBTX interface {
 }
 ```
 
-Each CRUD method follows a consistent pattern:
+Unlike the domain/app layers, the adapter ships as a **working CRUD example**
+you adapt (the SQL↔struct mapping is mechanical and tedious to write blank):
 
-- **Create** — `INSERT` with numbered placeholders (`$1, $2, ...`), passes
-  `item.ID()`, `tenantID`, `item.CreatedAt()`, `item.UpdatedAt()`.
-- **FindByID** — `SELECT ... WHERE id = $1 AND tenant_id = $2`. Maps
-  `pgx.ErrNoRows` to `domain.Err{Entity}NotFound`. Rebuilds the entity via
-  `domain.Reconstitute{Entity}()`.
-- **List** — fetches `limit+1` rows to detect next page existence.
-  Cursor-based pagination using `id > $cursor ORDER BY id ASC`.
-- **Update** — `UPDATE ... WHERE id = $1 AND tenant_id = $2`. Returns
-  `Err{Entity}NotFound` if `RowsAffected() == 0`.
-- **Delete** — `DELETE ... WHERE id = $1 AND tenant_id = $2`. Same
-  not-found check via `RowsAffected()`.
+- **Create** — `INSERT` with numbered placeholders; passes `item.ID()`,
+  `item.CreatedAt()`, `item.UpdatedAt()` (+ your mutable fields).
+- **FindByID** — `SELECT ... WHERE id = $1`. Maps `pgx.ErrNoRows` to
+  `domain.Err{Entity}NotFound`; rebuilds via `domain.Reconstitute{Entity}()`.
+- **List** — fetches `limit+1` rows to detect a next page; cursor pagination
+  via `id > $cursor ORDER BY id ASC`.
+- **Update** / **Delete** — `... WHERE id = $1`; `Err{Entity}NotFound` when
+  `RowsAffected() == 0`.
 
-To customize for a specific entity, add columns to the SQL statements and
-corresponding scan variables / `Reconstitute` parameters. The base pattern
-handles error mapping, pagination, and IDOR scoping.
+Customize: add columns to the SQL + matching scan vars + `Reconstitute`
+parameters, and (if multi-tenant) the scope filter. The base pattern handles
+error mapping and pagination.
 
 ### Consumer handlers depend on usecases, not app
 

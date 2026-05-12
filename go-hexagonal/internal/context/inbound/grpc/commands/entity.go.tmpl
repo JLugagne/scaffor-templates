@@ -1,3 +1,18 @@
+// Package commands — file {{ .Entity | lower }}.go ({{ .Entity }} gRPC write handlers)
+//
+// PURPOSE
+//   The gRPC command side for {{ .Entity }}: a handler struct holding the {{ .Entity }}Commands
+//   usecase, plus Setup{{ .Entity }}Services to register the generated server with the grpc.Server.
+//   Handler methods are thin — ActorFromContext → convert the proto request → call the
+//   usecase → map domain errors to gRPC status codes → return the proto response.
+//
+// THIS IS A SKELETON — there are no proto stubs yet, so nothing is registered and no
+//   handler methods exist. Flesh it out from the `add_grpc_commands` hint:
+//     1. define the RPCs in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
+//     2. run protoc (see the Makefile) → pkg/{{ .Context }}/grpc/*.pb.go
+//     3. register the server in Setup{{ .Entity }}Services, add one handler method per RPC
+//   Decide first: which operations are RPCs? mirror the {{ .Entity }}Commands interface,
+//   and use proper names (PlaceOrder, not CreateOrder) if your domain has them.
 package commands
 
 import (
@@ -11,26 +26,9 @@ type {{ .Entity | lower }}Handler struct {
 }
 
 // Setup{{ .Entity }}Services registers gRPC command services for {{ .Entity }}.
-// Called from the composition root (wire_{{ .Entity | lower }}.go).
+// Called from the composition root (wire_{{ .Entity | lower }}.go). Register the generated
+// server here once proto stubs exist — see the add_grpc_commands hint.
 func Setup{{ .Entity }}Services(srv *grpc.Server, cmds {{ .Entity | lower }}uc.{{ .Entity }}Commands) {
 	h := &{{ .Entity | lower }}Handler{commands: cmds}
 	_ = h
-	// TODO(scaffolding): register the generated gRPC server with `srv` after proto stubs exist.
-	// Required before any gRPC command test passes — without registration, the server rejects
-	// every call with Unimplemented.
-	//   1. Define Create/Update/Delete RPCs in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
-	//   2. Run protoc (see Makefile.tmpl) to generate pkg/{{ .Context }}/grpc/*.pb.go
-	//   3. Uncomment: pb.Register{{ .Entity }}CommandsServer(srv, h)
 }
-
-// TODO(scaffolding): implement one method on *{{ .Entity | lower }}Handler per proto RPC.
-// Required before gRPC command calls return anything other than Unimplemented.
-// Each method must: call ActorFromContext, convert the proto request via converters.To*Domain,
-// invoke h.commands.*, map domain errors to gRPC status codes, and return the proto response
-// built via converters.ToProto*.
-//   func (h *{{ .Entity | lower }}Handler) Create{{ .Entity }}(ctx context.Context, req *pb.Create{{ .Entity }}Request) (*pb.Create{{ .Entity }}Response, error) {
-//       actor, err := grpc.ActorFromContext(ctx); if err != nil { return nil, status.Error(codes.Unauthenticated, err.Error()) }
-//       domainReq, err := converters.To{{ .Entity }}Domain(req); if err != nil { return nil, status.Error(codes.InvalidArgument, err.Error()) }
-//       created, err := h.commands.Create{{ .Entity }}(ctx, actor, domainReq); if err != nil { return nil, mapDomainErr(err) }
-//       return &pb.Create{{ .Entity }}Response{Item: converters.ToProto{{ .Entity }}(created)}, nil
-//   }

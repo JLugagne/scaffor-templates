@@ -1,62 +1,44 @@
+// Package app — file {{ .Entity | lower }}.go ({{ .Entity }} application service methods)
+//
+// PURPOSE
+//   The {{ .Entity }} half of the App service: the methods that satisfy
+//   {{ .Entity | lower }}uc.{{ .Entity }}Commands and {{ .Entity | lower }}uc.{{ .Entity }}Queries.
+//   This is the *orchestration* layer — load aggregate(s) via repositories, call
+//   domain methods/services to mutate or validate, persist, optionally publish
+//   events. No business rules live here (those are on the domain entity or in
+//   domain/services); no SQL lives here (that's the adapter).
+//
+// WHAT THE SCAFFOLD GIVES YOU
+//   Almost nothing — on purpose. Generated CRUD bodies were removed because they
+//   pinned a Create/Update/Delete shape that real domains rarely keep, and the
+//   model ended up deleting and rewriting them anyway. Build this file from the
+//   `add_app_service` hint, which has the full CRUD skeleton AND action-method
+//   examples (PlaceOrder, PayOrder, …) ready to copy.
+//
+// CHECKLIST WHEN YOU FILL IT IN
+//   1. Add the field(s) to the App struct in app/config.go ({{ .Entity | lower }}Repo, {{ .Entity | lower }}Publisher, …).
+//      The Set{{ .Entity }}Repo setter is generated for you next to this file.
+//   2. Add the compile-time assertions once the interfaces match:
+//        var (
+//            _ {{ .Entity | lower }}uc.{{ .Entity }}Commands = (*App)(nil)
+//            _ {{ .Entity | lower }}uc.{{ .Entity }}Queries  = (*App)(nil)
+//        )
+//   3. Every method takes `actor *domain.Actor` (never a bare tenantID) and passes
+//      it through to the repository.
+//   4. Multi-aggregate or write-plus-publish operations go inside
+//        a.uow.Do(ctx, func(ctx context.Context, repos uow.Repositories) error { … })
+//      so the change is atomic. Single-repo reads/writes call the repo directly.
+//   5. After defining a method, generate its unit-test stub:
+//        go-surgeon test -f internal/{{ .Context }}/app/{{ .Entity | lower }}.go -i App.<MethodName>
 package app
 
-import (
-	"context"
-	"fmt"
-
-	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
-	"{{ .ModulePath }}/internal/{{ .Context }}/domain/repositories/{{ .Entity | lower }}repo"
-	"{{ .ModulePath }}/internal/{{ .Context }}/domain/usecases/{{ .Entity | lower }}uc"
-)
-
-// Convention: if an operation touches more than one repository or emits events
-// alongside writes, wrap it in a.uow.Do(ctx, func(ctx context.Context, repos UoWRepos) error { ... })
-// to keep the state change atomic. Single-repo reads and writes can call the repo directly.
-
-// Compile-time checks — App implements both {{ .Entity }} usecase interfaces.
-var (
-	_ {{ .Entity | lower }}uc.{{ .Entity }}Commands = (*App)(nil)
-	_ {{ .Entity | lower }}uc.{{ .Entity }}Queries  = (*App)(nil)
-)
-
-func (a *App) Create{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error) {
-	if err := a.{{ .Entity | lower }}Repo.Create(ctx, actor.TenantID(), item); err != nil {
-		return nil, fmt.Errorf("create {{ .Entity | lower }}: %w", err)
-	}
-
-	a.logger.Info("created {{ .Entity | lower }}", "id", item.ID(), "actor", actor.ID())
-	return item, nil
-}
-
-func (a *App) Update{{ .Entity }}(ctx context.Context, actor *domain.Actor, item *domain.{{ .Entity }}) (*domain.{{ .Entity }}, error) {
-	if err := a.{{ .Entity | lower }}Repo.Update(ctx, actor.TenantID(), item); err != nil {
-		return nil, fmt.Errorf("update {{ .Entity | lower }}: %w", err)
-	}
-
-	a.logger.Info("updated {{ .Entity | lower }}", "id", item.ID(), "actor", actor.ID())
-	return item, nil
-}
-
-func (a *App) Get{{ .Entity }}ByID(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error) {
-	item, err := a.{{ .Entity | lower }}Repo.FindByID(ctx, actor.TenantID(), id)
-	if err != nil {
-		return nil, fmt.Errorf("get {{ .Entity | lower }} by id: %w", err)
-	}
-	return item, nil
-}
-
-func (a *App) List{{ .Entity }}s(ctx context.Context, actor *domain.Actor, params domain.ListParams) (*domain.ListResult[*domain.{{ .Entity }}], error) {
-	result, err := a.{{ .Entity | lower }}Repo.List(ctx, actor.TenantID(), params)
-	if err != nil {
-		return nil, fmt.Errorf("list {{ .Entity | lower }}s: %w", err)
-	}
-	return result, nil
-}
-
-func (a *App) Delete{{ .Entity }}(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) error {
-	if err := a.{{ .Entity | lower }}Repo.Delete(ctx, actor.TenantID(), id); err != nil {
-		return fmt.Errorf("delete {{ .Entity | lower }}: %w", err)
-	}
-	a.logger.Info("deleted {{ .Entity | lower }}", "id", id, "actor", actor.ID())
-	return nil
-}
+// EXAMPLE — delete this once you have the real methods. Not guaranteed to compile
+// as-is; it shows the shape (load via repo → domain method → persist → log/return):
+//
+//	func (a *App) Get{{ .Entity }}ByID(ctx context.Context, actor *domain.Actor, id domain.{{ .Entity }}ID) (*domain.{{ .Entity }}, error) {
+//	    item, err := a.{{ .Entity | lower }}Repo.FindByID(ctx, actor, id)
+//	    if err != nil {
+//	        return nil, fmt.Errorf("get {{ .Entity | lower }} by id: %w", err)
+//	    }
+//	    return item, nil
+//	}

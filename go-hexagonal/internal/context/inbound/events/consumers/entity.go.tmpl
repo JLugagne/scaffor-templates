@@ -1,3 +1,23 @@
+// Package consumers — file {{ .Entity | lower }}.go ({{ .Entity }} event consumer)
+//
+// PURPOSE
+//   Receives events emitted by the {{ .SourceContext }} bounded context (the payload
+//   types live in pkg/{{ .SourceContext }}/events/v1) and acts on the LOCAL {{ .Context }}
+//   context via its local usecase interfaces. It must NOT reach into {{ .SourceContext }}
+//   aggregates — translate the foreign event into local domain operations.
+//
+//   The wire file (wire_{{ .Entity | lower }}_consumer.go, generated alongside this) hooks
+//   the consumer into the Setup() lifecycle via RegisterConsumer — fill its
+//   TODO(scaffolding) markers to connect to your broker (NATS/Kafka/SQS/Rabbit).
+//
+// THIS IS A SKELETON. Fill it from the `add_consumer_handler` hint:
+//   1. add one field per local usecase interface this consumer calls (e.g. orderCmds)
+//   2. add the matching parameter to New{{ .Entity }}Consumer
+//   3. in Handle...Event: map the event fields to domain value types and invoke the
+//      local usecase — without that call, events are parsed and silently dropped.
+//   Decide first: which local operation does this event trigger? (e.g. AccountDeleted →
+//   AnonymizeOrdersForAccount). The usecase method takes `actor *domain.Actor` — for
+//   system-driven events, build a service/system Actor and pass it.
 package consumers
 
 import (
@@ -9,41 +29,22 @@ import (
 )
 
 // {{ .Entity }}Consumer handles events from the {{ .SourceContext }} bounded context.
-// It depends on local usecase interfaces — wire the appropriate Commands
-// from the composition root.
-type {{ .Entity }}Consumer struct {
-	// TODO(scaffolding): declare one field per local usecase interface this consumer invokes.
-	// Required before Handle*Event can act on the local bounded context — without these
-	// dependencies the consumer silently drops every event.
-	// Example (cross-context AccountDeleted → anonymize local orders):
-	//   orderCmds orderuc.OrderCommands
-}
+// Add one field per local usecase interface it invokes — see the add_consumer_handler hint.
+type {{ .Entity }}Consumer struct{}
 
-// New{{ .Entity }}Consumer creates a new consumer for {{ .SourceContext }} events.
-// Inject local usecase Commands from the composition root:
-//
-//	consumer := consumers.New{{ .Entity }}Consumer(orderCmds)
+// New{{ .Entity }}Consumer creates the consumer. Add parameters for the local usecase
+// interfaces it needs (injected from the composition root).
 func New{{ .Entity }}Consumer() *{{ .Entity }}Consumer {
 	return &{{ .Entity }}Consumer{}
 }
 
-// Handle{{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }}Event handles {{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }} events from the {{ .SourceContext }} bounded context.
+// Handle{{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }}Event handles {{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }} events from {{ .SourceContext }}.
+// After unmarshalling, invoke the local usecase — see the add_consumer_handler hint.
 func (c *{{ .Entity }}Consumer) Handle{{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }}Event(ctx context.Context, payload []byte) error {
 	var event events.{{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }}Event
 	if err := json.Unmarshal(payload, &event); err != nil {
 		return fmt.Errorf("unmarshal {{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }} event from {{ .SourceContext }}: %w", err)
 	}
-
-	// TODO(scaffolding): map event fields to domain value types (IDs, Money, etc.) and
-	// invoke the appropriate local usecase method on c.<field>.
-	// Required before this consumer has any observable effect — without a usecase call,
-	// events are parsed and discarded, and the local context stays inconsistent.
-	// This consumer receives events from {{ .SourceContext }} but acts on the LOCAL
-	// bounded context's entities via its local usecase interfaces — do NOT reach into
-	// {{ .SourceContext }} aggregates directly.
-	// Example (cross-context):
-	//   accountID := domain.AccountID(event.AccountID)
-	//   return c.orderCmds.AnonymizeOrdersForAccount(ctx, accountID)
 	_ = event
 	return nil
 }

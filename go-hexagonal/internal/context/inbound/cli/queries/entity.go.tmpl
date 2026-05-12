@@ -1,3 +1,18 @@
+// Package queries — file {{ .Entity | lower }}.go ({{ .Entity }} CLI read sub-commands, Cobra)
+//
+// PURPOSE
+//   The read sub-commands (get / list) for the `{{ .Entity | lower }}` command group, wired to
+//   {{ .Entity }}Queries. Setup{{ .Entity }}Queries merges into the existing group if
+//   Setup{{ .Entity }}Cmds already created it (no duplicate group).
+//
+// THE RunE BODIES ARE STUBS (`not implemented`). Implement them from the
+//   `add_cli_queries` hint:
+//     - get:  id := domain.{{ .Entity }}ID(args[0]) → h.queries.Get{{ .Entity }}ByID(cmd.Context(), id)
+//             → shared.WriteJSON(converters.ToPublic{{ .Entity }}(item))
+//     - list: build domain.ListParams from the --cursor/--limit flags →
+//             h.queries.List{{ .Entity }}s(...) → shared.WriteJSON(converters.ToPublic{{ .Entity }}List(result))
+//   Note: the usecase methods take `actor *domain.Actor` — build one in the CLI entry
+//   point (or per-command from flags/env) and thread it through, same as HTTP/gRPC.
 package queries
 
 import (
@@ -13,14 +28,14 @@ type {{ .Entity | lower }}Handler struct {
 	queries {{ .Entity | lower }}uc.{{ .Entity }}Queries
 }
 
-// Setup{{ .Entity }}Queries registers CLI query sub-commands for {{ .Entity }} under the given root.
-// Called from the CLI entry point (cmd/{{ .Context }}-cli/main.go).
+// Setup{{ .Entity }}Queries registers the `get` and `list` sub-commands under the
+// `{{ .Entity | lower }}` group (creating the group if it doesn't exist yet).
+// Called from cmd/{{ .Context }}-cli/main.go.
 func Setup{{ .Entity }}Queries(root *cobra.Command, q {{ .Entity | lower }}uc.{{ .Entity }}Queries) {
 	h := &{{ .Entity | lower }}Handler{queries: q}
 
-	group := root.Commands()
 	var entityGroup *cobra.Command
-	for _, c := range group {
+	for _, c := range root.Commands() {
 		if c.Use == "{{ .Entity | lower }}" {
 			entityGroup = c
 			break
@@ -44,12 +59,7 @@ func (h *{{ .Entity | lower }}Handler) getCmd() *cobra.Command {
 		Short: "Get a {{ .Entity | lower }} by ID",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO(scaffolding): implement get.
-			//   id := domain.{{ .Entity }}ID(args[0])
-			//   item, err := h.queries.Get{{ .Entity }}ByID(cmd.Context(), id)
-			//   if err != nil { return err }
-			//   return shared.WriteJSON(converters.ToPublic{{ .Entity }}(item))
-			return fmt.Errorf("not implemented")
+			return fmt.Errorf("not implemented") // see the add_cli_queries hint
 		},
 	}
 }
@@ -62,16 +72,9 @@ func (h *{{ .Entity | lower }}Handler) listCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List {{ .Entity | lower }}s",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			params := domain.ListParams{
-				Cursor: cursor,
-				Limit:  limit,
-			}
+			params := domain.ListParams{Cursor: cursor, Limit: limit}
 			_ = params
-			// TODO(scaffolding): implement list.
-			//   result, err := h.queries.List{{ .Entity }}s(cmd.Context(), params)
-			//   if err != nil { return err }
-			//   return shared.WriteJSON(converters.ToPublic{{ .Entity }}List(result))
-			return fmt.Errorf("not implemented")
+			return fmt.Errorf("not implemented") // see the add_cli_queries hint
 		},
 	}
 	cmd.Flags().StringVar(&cursor, "cursor", "", "pagination cursor from a previous list response")

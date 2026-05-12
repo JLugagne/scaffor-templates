@@ -1,3 +1,30 @@
+// Package domain — file {{ .Entity | lower }}.go
+//
+// PURPOSE
+//   The {{ .Entity }} aggregate: its typed identifier, its struct, its constructor,
+//   its invariant-enforcing setters, and its domain errors. This is the heart of
+//   the bounded context — everything else (repositories, app services, handlers)
+//   exists to load, mutate and persist this type.
+//
+// WHAT GOES HERE
+//   - {{ .Entity }}ID                — the typed identifier (string-backed UUIDv7)
+//   - {{ .Entity }}                  — the struct, ALL FIELDS UNEXPORTED
+//   - New{{ .Entity }}(...)          — the only validated constructor (enforces invariants)
+//   - Reconstitute{{ .Entity }}(...) — rebuilds from trusted DB rows, NO validation
+//   - getters / setters              — read via getters, mutate ONLY via setters that validate
+//   - Err{{ .Entity }}...            — one package-level var per distinct invariant violation
+//
+// WHAT DOES NOT GO HERE
+//   - persistence, SQL, transactions       → outbound/<adapter>/
+//   - orchestration across aggregates       → app/
+//   - HTTP/gRPC/CLI shapes                  → inbound/, pkg/{{ .Context }}/http|grpc/
+//   - cross-aggregate pure rules / policies → domain/services/
+//
+// The scaffold deliberately leaves this almost empty. Generated CRUD bodies were
+// removed because they forced a shape that rarely survives contact with a real
+// domain. Fill it from the `add_domain_entity` hint, which carries condensed,
+// copy-pasteable examples and the questions you must answer first (does this
+// entity have a name? a status? money? a parent? which fields are mutable?).
 package domain
 
 import (
@@ -22,70 +49,75 @@ func New{{ .Entity }}ID() {{ .Entity }}ID {
 	return {{ .Entity }}ID(uuid.Must(uuid.NewV7()).String())
 }
 
-// Domain errors for {{ .Entity }} — defined as package-level vars for testability
-// (tests can use errors.Is or direct comparison).
+// Domain errors for {{ .Entity }}.
+//
+// Declare one package-level var per distinct invariant violation. Each must have
+// a stable UPPER_SNAKE code (consumed by inbound adapters to map HTTP/gRPC status)
+// and a human-readable message. Tests assert specific failure modes with errors.Is.
+// See the `add_domain_entity` hint for examples (XXX_NAME_REQUIRED, XXX_AMOUNT_NEGATIVE, ...).
 var (
 	Err{{ .Entity }}NotFound = NewError("{{ .Entity | upper }}_NOT_FOUND", "{{ .Entity | lower }} not found")
-	// TODO(scaffolding): declare one var per distinct invariant violation. Each must have a
-	// stable UPPER_SNAKE code (used by API error responses / clients) and a human message.
-	// Required before unit tests can assert specific failure modes via errors.Is.
-	// Examples:
-	//   Err{{ .Entity }}NameRequired = NewError("{{ .Entity | upper }}_NAME_REQUIRED", "{{ .Entity | lower }} name is required")
-	//   Err{{ .Entity }}AmountNegative = NewError("{{ .Entity | upper }}_AMOUNT_NEGATIVE", "{{ .Entity | lower }} amount must be positive")
 )
 
-// {{ .Entity }} is the domain model. All fields are unexported — access via getters,
-// mutate via setters that enforce invariants.
+// {{ .Entity }} is the domain aggregate.
+//
+// ALL FIELDS ARE UNEXPORTED — read via getters, mutate ONLY via setters that
+// enforce invariants. This is what makes "an invalid {{ .Entity }} cannot exist"
+// true: there is no code path that bypasses validation. Use typed value objects
+// (domain.Money, domain.{{ .Entity }}Status, …) rather than raw primitives wherever
+// the value has rules of its own. See the hint for a worked example.
 type {{ .Entity }} struct {
 	id        {{ .Entity }}ID
-	// TODO(scaffolding): declare one unexported field per domain attribute using a typed
-	// value where possible (domain.Money, domain.{{ .Entity }}Status, etc. — not raw primitives).
-	// Required before the entity can hold any state — getters/setters below will target these.
 	createdAt time.Time
 	updatedAt time.Time
+	// Add one unexported field per domain attribute. The hint shows the pattern.
 }
 
-// New{{ .Entity }} creates a validated {{ .Entity }}.
-// All construction goes through here so invariants are always enforced.
+// New{{ .Entity }} creates a validated {{ .Entity }}. All construction goes through
+// here so invariants are always enforced. Add the required parameters and the
+// validation as you define the entity's fields — see the hint.
 func New{{ .Entity }}() (*{{ .Entity }}, error) {
+	now := time.Now()
 	return &{{ .Entity }}{
 		id:        New{{ .Entity }}ID(),
-		createdAt: time.Now(),
-		updatedAt: time.Now(),
+		createdAt: now,
+		updatedAt: now,
 	}, nil
 }
 
-// TODO(scaffolding): define Reconstitute{{ .Entity }} accepting every field declared above,
-// in the same order the repository's Scan fills them. Do NOT run validation here — trusted
-// inputs only (coming from the DB). Repository adapters depend on this to rebuild entities,
-// and without it FindByID/List return the "Reconstitute{{ .Entity }} not yet defined" stub.
-// Required before any repository adapter contract test passes.
+// Reconstitute{{ .Entity }} rebuilds a {{ .Entity }} from a trusted source (the DB).
+// It performs NO validation — inputs are assumed valid because they were valid
+// when persisted. Repository adapters call this from their row-scan path; without
+// it, FindByID/List cannot return rebuilt aggregates.
+//
+// Add every field, in the same order the repository's Scan fills them, e.g.:
 //
 //	func Reconstitute{{ .Entity }}(id {{ .Entity }}ID, name string, createdAt, updatedAt time.Time) *{{ .Entity }} {
 //	    return &{{ .Entity }}{id: id, name: name, createdAt: createdAt, updatedAt: updatedAt}
 //	}
+func Reconstitute{{ .Entity }}(id {{ .Entity }}ID, createdAt, updatedAt time.Time) *{{ .Entity }} {
+	return &{{ .Entity }}{id: id, createdAt: createdAt, updatedAt: updatedAt}
+}
 
 // --- Getters ---
 
-func (e *{{ .Entity }}) ID() {{ .Entity }}ID   { return e.id }
-func (e *{{ .Entity }}) CreatedAt() time.Time   { return e.createdAt }
-func (e *{{ .Entity }}) UpdatedAt() time.Time   { return e.updatedAt }
+func (e *{{ .Entity }}) ID() {{ .Entity }}ID      { return e.id }
+func (e *{{ .Entity }}) CreatedAt() time.Time     { return e.createdAt }
+func (e *{{ .Entity }}) UpdatedAt() time.Time     { return e.updatedAt }
 
-// --- Setters (return domain errors) ---
-
-// TODO(scaffolding): add one setter per MUTABLE field. Each setter must:
-//  1. Validate the input and return a named Err{{ .Entity }}XxxRequired / Invalid on failure.
-//  2. Bump e.updatedAt = time.Now() on success.
-//  3. Never expose the underlying field — all mutation goes through setters so repository
-//     updates and usecase calls can never violate an invariant.
-// Required before any app-service unit test passes — handlers call these setters during
-// the read-before-write update path.
+// --- Setters (validate, then bump updatedAt) ---
+//
+// Add one setter per MUTABLE field. Each must: (1) validate and return a named
+// Err{{ .Entity }}... on failure, (2) set e.updatedAt = time.Now() on success,
+// (3) never expose the field. The HTTP update handler does read-then-setters-then-save,
+// so app-service and handler tests both depend on these. Example in the hint:
 //
 //	func (e *{{ .Entity }}) SetName(name string) error {
-//	    if strings.TrimSpace(name) == "" {
+//	    name = strings.TrimSpace(name)
+//	    if name == "" {
 //	        return Err{{ .Entity }}NameRequired
 //	    }
-//	    e.name = strings.TrimSpace(name)
+//	    e.name = name
 //	    e.updatedAt = time.Now()
 //	    return nil
 //	}

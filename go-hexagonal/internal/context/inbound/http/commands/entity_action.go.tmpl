@@ -1,12 +1,22 @@
+// Package commands — file {{ .Entity | lower }}_{{ .Action | lower }}.go ({{ .Entity }} "{{ .Action }}" action route)
+//
+// PURPOSE
+//   A non-CRUD state transition exposed as POST /{{ .Entity | lower }}s/{id}/{{ .Action | lower }}.
+//   The route auto-registers via init() into {{ .Entity | lower }}CommandsActions — Setup{{ .Entity }}
+//   picks it up, no edit to wire_{{ .Entity | lower }}.go needed.
+//
+// THE HANDLER BODY IS A STUB (501). Implement it from the `add_http_action` hint.
+//   The shape: ActorFromRequest → parse id (and decode+validate a body if the action
+//   takes one) → call s.App.{{ .Action }}{{ .Entity }}(ctx, actor, id) → respond (200 with
+//   the updated entity, or 204 for side-effect-only) → shared.WriteDomainError on failure.
+//   Don't forget: add {{ .Action }}{{ .Entity }} to the {{ .Entity }}Commands interface,
+//   regenerate the mock (add_usecase_mock), and implement it in the app service.
 package commands
 
 import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-
-	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
-	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/shared"
 )
 
 func init() {
@@ -16,26 +26,5 @@ func init() {
 }
 
 func (s {{ .Entity }}Svc) {{ .Action | lower }}(w http.ResponseWriter, r *http.Request) {
-	actor, err := shared.ActorFromRequest(r.Context(), r)
-	if err != nil {
-		shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error())
-		return
-	}
-
-	vars := mux.Vars(r)
-	id := domain.{{ .Entity }}ID(vars["id"])
-
-	// TODO(scaffolding): call s.App.{{ .Action }}{{ .Entity }}(r.Context(), actor, id)
-	// and, if the action needs a body, decode+validate a v1.{{ .Action }}{{ .Entity }}Request
-	// first (using s.Validator). Return http.StatusOK with the updated entity (or
-	// StatusNoContent for side-effect-only actions), mapping domain errors via
-	// shared.WriteDomainError.
-	// Required before any POST /{{ .Entity | lower }}s/{id}/{{ .Action | lower }} test
-	// passes — handler currently returns 501.
-	//   updated, err := s.App.{{ .Action }}{{ .Entity }}(r.Context(), actor, id)
-	//   if err != nil { shared.WriteDomainError(w, err); return }
-	//   shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}(updated))
-	_ = actor
-	_ = id
 	w.WriteHeader(http.StatusNotImplemented)
 }

@@ -1,21 +1,24 @@
+// Package converters — file {{ .Entity | lower }}.go ({{ .Entity }} gRPC <-> domain mapping)
+//
+// PURPOSE
+//   Translate between the proto types (pkg/{{ .Context }}/grpc) and the domain type, the
+//   same way the HTTP converters do for JSON DTOs. ToProto{{ .Entity }} reads the domain
+//   entity via getters; To{{ .Entity }}Domain builds a validated entity via New{{ .Entity }}.
+//
+// SKELETON — the proto stubs don't exist yet, so the signatures below are placeholders.
+//   Fill them from the `add_grpc_converter` hint once protoc has generated the *.pb.go:
+//     - change ToProto{{ .Entity }}'s return type to *pb.{{ .Entity }} and populate every
+//       field (typed IDs → string(...), time.Time → timestamppb.New(...), Money → nested
+//       message, enums → pb.{{ .Entity }}Status(int32(item.Status())))
+//     - add To{{ .Entity }}Domain(req *pb.Create{{ .Entity }}Request) (*domain.{{ .Entity }}, error)
 package converters
 
 import (
 	"{{ .ModulePath }}/internal/{{ .Context }}/domain"
 )
 
-// ToProto{{ .Entity }} converts a domain object into a gRPC response.
-// Uses getters since domain fields are unexported.
-// TODO(scaffolding): change the return type to *pb.{{ .Entity }} once proto stubs are
-// generated, and populate every field via its domain getter (item.ID(), item.CreatedAt(),
-// etc.). Typed IDs → string(...), time.Time → timestamppb.New(...), domain.Money → nested
-// proto message, enums → pb.{{ .Entity }}Status(int32(item.Status())).
-// Required before any gRPC handler can return a non-nil response — handler tests assert
-// field equality against a proto struct.
+// ToProto{{ .Entity }} converts a domain {{ .Entity }} into its proto representation.
+// Placeholder until proto stubs exist — see the add_grpc_converter hint.
 func ToProto{{ .Entity }}(item *domain.{{ .Entity }}) {
 	_ = item
-	//   return &pb.{{ .Entity }}{
-	//       Id:        string(item.ID()),
-	//       CreatedAt: timestamppb.New(item.CreatedAt()),
-	//   }
 }
