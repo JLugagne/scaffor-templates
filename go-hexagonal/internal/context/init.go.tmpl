@@ -13,7 +13,8 @@ import (
 
 	"{{ .ModulePath }}/internal/{{ .Context }}/app"
 	appconfig "{{ .ModulePath }}/internal/{{ .Context }}/config"
-	inboundhttp "{{ .ModulePath }}/internal/{{ .Context }}/inbound/http"
+	// INBOUND-HTTP-IMPORT (uncommented by add_inbound_http_commands):
+	// inboundhttp "{{ .ModulePath }}/internal/{{ .Context }}/inbound/http"
 )
 
 var tracer = otel.Tracer("{{ .ModulePath }}/internal/{{ .Context }}")
@@ -36,8 +37,8 @@ type Backends struct {
 //
 // Note: HTTP validators are NOT in WireDeps. The inbound/http package owns its
 // own validator instances — created inside commands.SetupRouter / queries.SetupRouter.
-// Wire files only register adapters here; HTTP routes are registered when
-// inboundhttp.SetupRouter is called below.
+// Wire files only register adapters here; HTTP routes are registered (once you've run
+// add_inbound_http_commands / add_inbound_http_queries) by the inbound/http package.
 type WireDeps struct {
 	Backends Backends
 	HTTPMux  *mux.Router
@@ -104,9 +105,9 @@ func (c *Context) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //
 // This is the composition root. Entity-specific adapter wiring lives in
 // wire_entity.go files — each one registers a WireFunc via init(). Setup
-// calls them all, passing the App. HTTP routes are registered in one shot
-// via inboundhttp.SetupRouter — entity HTTP setup is owned by the
-// inbound/http package, not by individual wire files.
+// calls them all, passing the App. HTTP routes — once you've scaffolded the
+// HTTP transport (add_inbound_http_commands / add_inbound_http_queries) — are
+// registered in one shot by the inbound/http package, not by individual wire files.
 func (c *Context) Setup(ctx context.Context, cfg *appconfig.Config, backends Backends) error {
 	ctx, span := tracer.Start(ctx, "{{ .Context }}.Setup")
 	defer span.End()
@@ -146,9 +147,10 @@ func (c *Context) Setup(ctx context.Context, cfg *appconfig.Config, backends Bac
 		}
 	}()
 
+	// INBOUND-HTTP-SETUP (uncommented by add_inbound_http_commands):
 	// Register all inbound HTTP routes (commands + queries) in one shot.
 	// The *app.App satisfies the App interface (commands.App + queries.App).
-	inboundhttp.SetupRouter(router, a)
+	// inboundhttp.SetupRouter(router, a)
 
 	// Start consumers — each runs in its own goroutine.
 	func() {

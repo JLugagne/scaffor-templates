@@ -95,7 +95,7 @@ lives in `init.go` and companion `wire_*.go` files:
   The composition root calls `inboundhttp.SetupRouter(router, a)` once. That
   function applies shared middleware and delegates to `commands.SetupRouter`
   and `queries.SetupRouter`, which iterate over per-entity `Setup<Entity>`
-  calls (added by `add_http_commands` / `add_http_queries` via go-surgeon).
+  calls (added by `add_inbound_http_commands` / `add_inbound_http_queries` via go-surgeon).
   `*app.App` satisfies the package-level `App` interface because it embeds
   every per-entity `<Entity>App`.
 

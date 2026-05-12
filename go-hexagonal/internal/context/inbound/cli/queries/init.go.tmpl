@@ -1,0 +1,7 @@
+// Package queries — CLI read sub-commands for the {{ .Context }} context.
+//
+// Per-entity query sub-commands (get / list) live in <entity>.go files, each
+// defining a Setup<Entity>Queries(root, q) that the CLI binary entry point calls
+// (it merges into the `<entity>` group if Setup<Entity>Cmds already created it).
+// Scaffold a new one with `add_inbound_cli_queries --set Entity=...`.
+package queries

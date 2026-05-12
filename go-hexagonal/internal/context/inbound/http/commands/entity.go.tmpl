@@ -14,7 +14,12 @@
 //   package SetupRouter calls. add_http_action appends extra routes to the
 //   {{ .Entity | lower }}CommandsActions slice via init() — no manual wiring.
 //
-// THE HANDLER BODIES ARE STUBS (501). Implement them from the `add_http_commands`
+// STATE-MACHINE ENTITY? This file ships create + update + delete. If {{ .Entity }} is
+//   driven by transitions (place → pay → fulfill), DELETE the update and/or delete
+//   methods below AND their routes in Setup{{ .Entity }}, and add each transition with
+//   `add_http_action` instead.
+//
+// THE HANDLER BODIES ARE STUBS (501). Implement them from the `add_inbound_http_commands`
 //   hint, which has the decode/validate/convert/respond pattern and the
 //   read-before-write update recipe ready to copy.
 package commands
@@ -48,33 +53,29 @@ var {{ .Entity | lower }}CommandsActions []{{ .Entity | lower }}ActionRegistrar
 
 // Setup{{ .Entity }} registers HTTP command routes for {{ .Entity }}.
 // Called from commands.SetupRouter (called from inbound/http.SetupRouter).
-// Decide the routes: pure CRUD? then PUT/DELETE here. State-machine entity?
-// drop them and use add_http_action for pay/cancel/fulfill instead.
 func Setup{{ .Entity }}(router *mux.Router, httpSvc HTTPService) {
 	svc := {{ .Entity }}Svc{HTTPService: httpSvc, App: httpSvc.App}
 	router.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s", svc.create).Methods(http.MethodPost)
-	{{- if ne .EntityHasActions "true" }}
-	router.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}", svc.update).Methods(http.MethodPut)
-	router.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}", svc.delete).Methods(http.MethodDelete)
-	{{- end }}
+	router.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}", svc.update).Methods(http.MethodPut)    // delete this line for a state-machine entity
+	router.HandleFunc("/api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}", svc.delete).Methods(http.MethodDelete) // delete this line for a state-machine entity
 	for _, fn := range {{ .Entity | lower }}CommandsActions {
 		fn(router, svc)
 	}
 }
 
-// create — POST /{{ .Entity | lower }}s. See the add_http_commands hint for the body.
+// create — POST /{{ .Entity | lower }}s. See the add_inbound_http_commands hint for the body.
 func (s {{ .Entity }}Svc) create(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-{{- if ne .EntityHasActions "true" }}
-// update — PUT /{{ .Entity | lower }}s/{id}. Read-before-write — see the add_http_commands hint.
+// update — PUT /{{ .Entity | lower }}s/{id}. Read-before-write — see the add_inbound_http_commands hint.
+// (Delete this method + its route above for a state-machine entity; use add_http_action.)
 func (s {{ .Entity }}Svc) update(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// delete — DELETE /{{ .Entity | lower }}s/{id}. See the add_http_commands hint for the body.
+// delete — DELETE /{{ .Entity | lower }}s/{id}. See the add_inbound_http_commands hint for the body.
+// (Delete this method + its route above if {{ .Entity }} is immutable / event-sourced.)
 func (s {{ .Entity }}Svc) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
-{{- end }}

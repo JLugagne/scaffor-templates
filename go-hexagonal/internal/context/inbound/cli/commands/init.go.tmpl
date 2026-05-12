@@ -1,0 +1,7 @@
+// Package commands — CLI write sub-commands for the {{ .Context }} context.
+//
+// Per-entity command groups (create / update / delete) live in <entity>.go files,
+// each defining a Setup<Entity>Cmds(root, svc) that the CLI binary entry point calls.
+// There is no shared service struct — each handler holds the usecase interfaces it
+// needs. Scaffold a new one with `add_inbound_cli_commands --set Entity=...`.
+package commands

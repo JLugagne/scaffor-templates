@@ -82,19 +82,22 @@ commands:
       Next steps — use scaffor incremental commands for each entity, adapter, and
       handler. Do NOT write these files manually with Write/Edit/go-surgeon.
 
-      For each domain entity (e.g. Book, Order):
-        1. add_domain_entity        — the entity struct, typed ID, errors
-        2. add_repository_interface — the repository port + its mock
-        3. add_repository_adapter   — the Postgres implementation
-        4. add_usecase_interface    — Commands and Queries ports + mocks
-        5. add_app_service          — the app-layer implementation
-        6. add_wire                 — register the entity in the composition root
-        7. add_http_handler         — CRUD HTTP routes + converter
-        8. add_app_unit_test        — unit tests with mocked dependencies
+      For each domain entity — run `add_entity` to get the exact ordered command list;
+      the spine is:
+        add_domain_entity → (write the entity) → add_repository_interface →
+        add_usecase_interface → add_app_service → (write the app methods) →
+        add_repository_adapter → add_inbound_http_commands → add_inbound_http_queries →
+        add_http_converter → add_public_types → add_e2e_test
+      (The first add_inbound_http_commands also creates the HTTP transport socle —
+      http/init.go, shared/*, the e2e harness, pkg/<ctx>/http/v1/types.go — and uncomments
+      inboundhttp.SetupRouter in init.go. add_grpc_handler / add_cli_handler list the
+      gRPC/CLI variants. add_domain_entity and add_app_service ship near-empty — their
+      hints carry the worked examples.)
 
       For cross-bounded-context events (the project consumes events from another
       context):
-        - add_consumed_event     — the event payload type under pkg/<source>/events/
+        - add_consumed_event     — the event payload type (+ the events/v1 package socle
+                                   on first call) under pkg/<source>/events/
         - add_consumer_handler   — REQUIRED, generates both the handler AND its
                                    automatic boot-time wiring via RegisterConsumer
                                    in init.go. Without this step, the consumer
@@ -118,7 +121,7 @@ commands:
   # ADD_CONTEXT — scaffold a new bounded context
   # ──────────────────────────────────────────────
   - command: add_context
-    description: Scaffold a new bounded context (domain, app, inbound, outbound shells, cmd entry point, public types)
+    description: Scaffold a new bounded context — the domain/app/cmd skeleton only. Inbound transports, the events socle, the e2e harness and the domain-services package are NOT created here; their commands create them on demand.
     variables:
       - key: AppName
         description: Application/project name (lowercase). Used in cmd/<context>/main.go service identifiers.
@@ -141,31 +144,29 @@ commands:
         destination: internal/{{ .Context }}/domain/query.go
       - source: internal/context/domain/actor.go.tmpl
         destination: internal/{{ .Context }}/domain/actor.go
-      - source: internal/context/domain/services/doc.go.tmpl
-        destination: internal/{{ .Context }}/domain/services/doc.go
       - source: internal/context/app/config.go.tmpl
         destination: internal/{{ .Context }}/app/config.go
-      - source: pkg/context/events/v1/consumed.go.tmpl
-        destination: pkg/{{ .Context }}/events/v1/consumed.go
-      - source: pkg/context/events/v1/emitted.go.tmpl
-        destination: pkg/{{ .Context }}/events/v1/emitted.go
-      - source: tests/e2e-api/setup_test.go.tmpl
-        destination: tests/e2e-api/{{ .Context }}/setup_test.go
     hint: |
-      Bounded context {{ .Context }} scaffolded.
+      Bounded context {{ .Context }} scaffolded (skeleton only).
 
       Created:
-        cmd/{{ .Context }}/main.go                                     — entry point (creates backends, health, graceful shutdown)
-        internal/{{ .Context }}/init.go                                — composition root (receives Backends, wires DI)
-        internal/{{ .Context }}/config/config.go                       — context-specific business config
-        internal/{{ .Context }}/domain/errors.go                       — domain Error type + NewError
-        internal/{{ .Context }}/domain/types.go                        — TenantID (the scoping id — rename/delete to fit)
-        internal/{{ .Context }}/domain/query.go                        — ListParams + ListResult (cursor pagination)
-        internal/{{ .Context }}/domain/actor.go                        — Actor (authenticated identity) — MINIMAL: {id} only
-        internal/{{ .Context }}/domain/services/doc.go                 — pure domain logic placeholder
-        internal/{{ .Context }}/app/config.go                          — the App struct (DI container) — only a logger so far
-        pkg/{{ .Context }}/events/v1/                                  — public event types (consumed, emitted)
-        tests/e2e-api/{{ .Context }}/setup_test.go                     — e2e helpers (doGet, doPost, etc.) for this context
+        cmd/{{ .Context }}/main.go             — entry point (creates backends, health, graceful shutdown)
+        internal/{{ .Context }}/init.go        — composition root (receives Backends, wires DI). The
+                                                 `inboundhttp` import + SetupRouter call ship COMMENTED —
+                                                 add_inbound_http_commands uncomments them for you.
+        internal/{{ .Context }}/config/config.go — context-specific business config
+        internal/{{ .Context }}/domain/errors.go — domain Error type + NewError
+        internal/{{ .Context }}/domain/types.go  — TenantID (the scoping id — rename/delete to fit)
+        internal/{{ .Context }}/domain/query.go  — ListParams + ListResult (cursor pagination)
+        internal/{{ .Context }}/domain/actor.go  — Actor (authenticated identity) — MINIMAL: {id} only
+        internal/{{ .Context }}/app/config.go    — the App struct (DI container) — only a logger so far
+
+      NOT created here (created on demand by the relevant command, on_conflict: skip):
+        - inbound transports (http/grpc/cli) — add_inbound_<transport>_{commands,queries}
+        - pkg/{{ .Context }}/events/v1/{consumed,emitted}.go — add_consumed_event / add_emitted_event
+        - tests/e2e-api/{{ .Context }}/setup_test.go — add_inbound_http_commands (first call)
+        - internal/{{ .Context }}/domain/services/doc.go — add_domain_service (first call)
+        - pkg/{{ .Context }}/http/v1/types.go — add_inbound_http_commands / _queries (first call)
 
       ── DECIDE THE IDENTITY / SCOPING MODEL NOW (it ripples into every layer) ─────
       The scaffolded domain.Actor is just {id}. Every app/usecase/repository method
@@ -203,122 +204,438 @@ commands:
           YES → add an actorKind enum field; the domain may grant service callers
                 broader scope or skip per-user rate limits.
 
-      NOTE: inbound transports are NOT scaffolded automatically. The generated
-      cmd/{{ .Context }}/main.go and internal/{{ .Context }}/init.go reference the HTTP
-      inbound layer — you must add at least the HTTP transport for the context to
-      compile, or strip the http imports from init.go/main.go manually if you only
-      want gRPC.
+      A fresh context COMPILES on its own (no inbound). The inbound layer is added when
+      you scaffold your first HTTP/gRPC/CLI handler — add_inbound_http_commands uncomments
+      the inboundhttp import + SetupRouter call in init.go at that point.
 
       NEXT STEPS:
         1. Decide the Actor/scoping model above and edit domain/actor.go + domain/types.go
-        2. Add the HTTP inbound transport (routes, middleware, shared helpers, public types):
-           scaffor execute go-hexagonal add_inbound_http --set Context={{ .Context }} --set ModulePath={{ .ModulePath }}
-        3. (Optional) Add the gRPC inbound transport:
-           scaffor execute go-hexagonal add_inbound_grpc --set Context={{ .Context }} --set ModulePath={{ .ModulePath }}
-        4. Add context-specific settings to internal/{{ .Context }}/config/config.go
-        5. Add your first entity:
+        2. Add context-specific settings to internal/{{ .Context }}/config/config.go
+        3. Add your first entity (run `add_entity` for the ordered command sequence):
            scaffor execute go-hexagonal add_entity --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity=YourEntity --set Adapter=pg
+        4. The first add_inbound_http_commands you run also creates the HTTP transport socle
+           (http/init.go, shared/*, pkg/{{ .Context }}/http/v1/types.go, the e2e harness) and
+           wires it into the composition root.
 
   # ──────────────────────────────────────────────
-  # INBOUND TRANSPORTS — HTTP and gRPC scaffolding
+  # INBOUND TRANSPORTS — per-entity commands/queries; the transport "socle"
+  # (init.go, shared/*, e2e harness) is created on first call via on_conflict: skip.
+  # There is no "bootstrap inbound" command and add_context creates no inbound —
+  # run add_inbound_<transport>_commands / _queries when you need a transport.
   # ──────────────────────────────────────────────
-  - command: add_inbound_http
-    description: Scaffold the HTTP inbound transport for a context (router init with App composition, shared middleware, commands/queries SetupRouter scaffolds, public HTTP types)
+  - command: add_inbound_http_commands
+    description: Add HTTP command handlers (write ops) for an entity — also creates the HTTP transport socle (init.go, shared/*, e2e harness) on first call, and wires inboundhttp.SetupRouter into the composition root
     variables:
       - key: Context
         description: Bounded context name
       - key: ModulePath
         description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
     files:
+      # ── transport socle (created once, then left alone) ──
       - source: internal/context/inbound/http/init.go.tmpl
         destination: internal/{{ .Context }}/inbound/http/init.go
+        on_conflict: skip
       - source: internal/context/inbound/http/shared/errors.go.tmpl
         destination: internal/{{ .Context }}/inbound/http/shared/errors.go
+        on_conflict: skip
       - source: internal/context/inbound/http/shared/actor.go.tmpl
         destination: internal/{{ .Context }}/inbound/http/shared/actor.go
+        on_conflict: skip
       - source: internal/context/inbound/http/shared/health.go.tmpl
         destination: internal/{{ .Context }}/inbound/http/shared/health.go
+        on_conflict: skip
       - source: internal/context/inbound/http/shared/middleware.go.tmpl
         destination: internal/{{ .Context }}/inbound/http/shared/middleware.go
+        on_conflict: skip
       - source: internal/context/inbound/http/commands/init.go.tmpl
         destination: internal/{{ .Context }}/inbound/http/commands/init.go
-      - source: internal/context/inbound/http/queries/init.go.tmpl
-        destination: internal/{{ .Context }}/inbound/http/queries/init.go
+        on_conflict: skip
       - source: pkg/context/http/v1/types.go.tmpl
         destination: pkg/{{ .Context }}/http/v1/types.go
+        on_conflict: skip
+      - source: tests/e2e-api/setup_test.go.tmpl
+        destination: tests/e2e-api/{{ .Context }}/setup_test.go
+        on_conflict: skip
+      # ── per-entity handler ──
+      - source: internal/context/inbound/http/commands/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go
+    shell_commands:
+      # Uncomment the inboundhttp import + SetupRouter call in the composition root (idempotent).
+      - command: >-
+          sed -i 's#^\t// inboundhttp "{{ .ModulePath }}/internal/{{ .Context }}/inbound/http"$#\tinboundhttp "{{ .ModulePath }}/internal/{{ .Context }}/inbound/http"#' internal/{{ .Context }}/init.go
+      - command: >-
+          sed -i 's#^\t// inboundhttp.SetupRouter(router, a)$#\tinboundhttp.SetupRouter(router, a)#' internal/{{ .Context }}/init.go
+      # Add {{ .Entity }}App embedding to the package App interface in commands/init.go (idempotent).
+      - command: |-
+          go-surgeon symbol App --dir internal/{{ .Context }}/inbound/http/commands --body \
+            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
+            | sed 's/^[0-9]*: //' \
+            | awk '/^type App interface {$/,/^}$/' \
+            | awk -v m="	{{ .Entity }}App" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
+            | go-surgeon update-interface --file internal/{{ .Context }}/inbound/http/commands/init.go --id App
+      # Add Setup{{ .Entity }}(router, svc) call to the SetupRouter function (idempotent).
+      - command: |-
+          go-surgeon symbol SetupRouter --dir internal/{{ .Context }}/inbound/http/commands --body \
+            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
+            | sed 's/^[0-9]*: //' \
+            | awk '/^func SetupRouter/,/^}$/' \
+            | awk -v m="	Setup{{ .Entity }}(router, svc)" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
+            | go-surgeon update-func --file internal/{{ .Context }}/inbound/http/commands/init.go --id SetupRouter
     hint: |
-      HTTP inbound transport added to {{ .Context }}.
+      HTTP command handlers for {{ .Entity }} added (transport socle + route wiring + 501-stub bodies).
 
-      Created:
-        internal/{{ .Context }}/inbound/http/init.go                   — App interface (commands.App + queries.App), SetupRouter applies middleware and delegates to commands/queries
-        internal/{{ .Context }}/inbound/http/shared/                   — errors, actor, middleware, health
+      Created (socle — only the FIRST add_inbound_http_* call writes these; later calls skip):
+        internal/{{ .Context }}/inbound/http/init.go                   — App interface, SetupRouter applies middleware, delegates to commands/queries
+        internal/{{ .Context }}/inbound/http/shared/{errors,actor,health,middleware}.go
         internal/{{ .Context }}/inbound/http/commands/init.go          — HTTPService, App interface (composed per entity), SetupRouter
-        internal/{{ .Context }}/inbound/http/queries/init.go           — HTTPService, App interface (composed per entity), SetupRouter
-        pkg/{{ .Context }}/http/v1/types.go                            — public HTTP types (requests, responses)
+        pkg/{{ .Context }}/http/v1/types.go                            — public HTTP types socle (validator instance)
+        tests/e2e-api/{{ .Context }}/setup_test.go                     — e2e harness (TestMain + doGet/doPost/...)
+      Created (per entity):
+        internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go
+          {{ .Entity }}App interface, {{ .Entity }}Svc, Setup{{ .Entity }}, action-registrar slice,
+          create/update/delete handlers that currently return 501
 
-      How routes get wired:
-        Each add_http_commands / add_http_queries appends an entity App to the package App
-        interface and a Setup<Entity>(router, svc) call to the package SetupRouter.
-        The context composition root only calls inboundhttp.SetupRouter(router, app, ...);
-        it never imports commands or queries directly.
+      Wired automatically (via shell):
+        - internal/{{ .Context }}/init.go: the `inboundhttp` import + `inboundhttp.SetupRouter(router, a)`
+          call in Setup() are uncommented (they ship commented so a fresh context compiles).
+        - commands/init.go: App interface now embeds {{ .Entity }}App; SetupRouter calls Setup{{ .Entity }}(router, svc).
+
+      ── DECIDE THE ROUTES ────────────────────────────────────────────────────────
+        • Pure CRUD? leave the generated PUT /{{ .Entity | lower }}s/{id} + DELETE handlers as-is.
+        • State machine (order: place → pay → fulfill)? Delete the generated `update`/`delete`
+          methods AND their routes in Setup{{ .Entity }}, and model each transition with add_http_action.
+        • Bulk / nested routes? Append via {{ .Entity | lower }}CommandsActions (init() registrar).
+
+      ── HANDLER PATTERN (fill in create/update/delete) ──────────────────────────
+
+        func (s {{ .Entity }}Svc) create(w http.ResponseWriter, r *http.Request) {
+            actor, err := shared.ActorFromRequest(r.Context(), r)
+            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+            var req v1.Create{{ .Entity }}Request
+            if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+                shared.WriteErrorJSON(w, http.StatusBadRequest, "INVALID_JSON", err.Error()); return
+            }
+            if err := s.Validator.Struct(req); err != nil {
+                shared.WriteErrorJSON(w, http.StatusBadRequest, "VALIDATION_FAILED", err.Error()); return
+            }
+            item, err := converters.To{{ .Entity }}Domain(req)
+            if err != nil { shared.WriteDomainError(w, err); return }
+            created, err := s.App.Create{{ .Entity }}(r.Context(), actor, item)
+            if err != nil { shared.WriteDomainError(w, err); return }
+            shared.WriteJSON(w, http.StatusCreated, converters.ToPublic{{ .Entity }}(created))
+        }
+
+        // update — READ-BEFORE-WRITE (never blind-overwrite — that turns PATCH into a full PUT)
+        func (s {{ .Entity }}Svc) update(w http.ResponseWriter, r *http.Request) {
+            actor, err := shared.ActorFromRequest(r.Context(), r)
+            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+            var req v1.Update{{ .Entity }}Request
+            // decode + validate as above ...
+            id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
+            item, err := s.App.Get{{ .Entity }}ByID(r.Context(), actor, id)         // load current state
+            if err != nil { shared.WriteDomainError(w, err); return }
+            // apply only the fields present in req via domain SETTERS (not struct writes):
+            // if req.Name != nil { if err := item.SetName(*req.Name); err != nil { shared.WriteDomainError(w, err); return } }
+            updated, err := s.App.Update{{ .Entity }}(r.Context(), actor, item)
+            if err != nil { shared.WriteDomainError(w, err); return }
+            shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}(updated))
+        }
+
+        func (s {{ .Entity }}Svc) delete(w http.ResponseWriter, r *http.Request) {
+            actor, err := shared.ActorFromRequest(r.Context(), r)
+            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+            id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
+            if err := s.App.Delete{{ .Entity }}(r.Context(), actor, id); err != nil { shared.WriteDomainError(w, err); return }
+            w.WriteHeader(http.StatusNoContent)
+        }
+
+      (Imports get added by `goimports` on save. If you renamed the usecase methods, call those names instead.)
 
       NEXT STEPS:
-        - Per-entity HTTP handlers + converters: add_http_handler (or add_http_commands / add_http_queries / add_http_converter individually)
-        - Non-CRUD state transitions: add_http_action
+        - Read side: add_inbound_http_queries --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+        - Converters: add_http_converter --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+        - Public types fields: add_public_types (or edit pkg/{{ .Context }}/http/v1/{{ .Entity | lower }}.go)
+        - Non-CRUD transitions: add_http_action
+      TESTS: handlers are exercised e2e (tests/e2e-api/{{ .Context }}/{{ .Entity | lower }}_test.go) against Mock{{ .Entity }}Commands.
+        After implementing: go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.create
 
-  - command: add_inbound_grpc
-    description: Scaffold the gRPC inbound transport for a context (ActorFromContext helper)
+  - command: add_inbound_http_queries
+    description: Add HTTP query handlers (read ops) for an entity — also creates the HTTP transport socle on first call
     variables:
       - key: Context
         description: Bounded context name
       - key: ModulePath
         description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      # ── transport socle (created once, then left alone — same set as add_inbound_http_commands) ──
+      - source: internal/context/inbound/http/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/init.go
+        on_conflict: skip
+      - source: internal/context/inbound/http/shared/errors.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/errors.go
+        on_conflict: skip
+      - source: internal/context/inbound/http/shared/actor.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/actor.go
+        on_conflict: skip
+      - source: internal/context/inbound/http/shared/health.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/health.go
+        on_conflict: skip
+      - source: internal/context/inbound/http/shared/middleware.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/shared/middleware.go
+        on_conflict: skip
+      - source: internal/context/inbound/http/queries/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/queries/init.go
+        on_conflict: skip
+      - source: pkg/context/http/v1/types.go.tmpl
+        destination: pkg/{{ .Context }}/http/v1/types.go
+        on_conflict: skip
+      - source: tests/e2e-api/setup_test.go.tmpl
+        destination: tests/e2e-api/{{ .Context }}/setup_test.go
+        on_conflict: skip
+      # ── per-entity handler ──
+      - source: internal/context/inbound/http/queries/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go
+    shell_commands:
+      # Note: if add_inbound_http_commands hasn't run yet, init.go's inboundhttp lines are
+      # still commented — they'll be uncommented by that command. queries SetupRouter is
+      # called from http/init.go's SetupRouter alongside commands' (already wired in init.go.tmpl).
+      - command: |-
+          go-surgeon symbol App --dir internal/{{ .Context }}/inbound/http/queries --body \
+            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
+            | sed 's/^[0-9]*: //' \
+            | awk '/^type App interface {$/,/^}$/' \
+            | awk -v m="	{{ .Entity }}App" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
+            | go-surgeon update-interface --file internal/{{ .Context }}/inbound/http/queries/init.go --id App
+      - command: |-
+          go-surgeon symbol SetupRouter --dir internal/{{ .Context }}/inbound/http/queries --body \
+            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
+            | sed 's/^[0-9]*: //' \
+            | awk '/^func SetupRouter/,/^}$/' \
+            | awk -v m="	Setup{{ .Entity }}(router, svc)" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
+            | go-surgeon update-func --file internal/{{ .Context }}/inbound/http/queries/init.go --id SetupRouter
+    hint: |
+      HTTP query handlers for {{ .Entity }} added (transport socle if missing + route wiring + 501-stub bodies).
+
+      Created (socle, skipped if it already exists): same set as add_inbound_http_commands but
+        with queries/init.go instead of commands/init.go.
+      Created (per entity):
+        internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go
+          {{ .Entity }}App ({{ .Entity }}Queries), {{ .Entity }}Svc, Setup{{ .Entity }}, query-registrar slice,
+          getByID/list handlers that currently return 501
+
+      Wired automatically: queries/init.go — App embeds {{ .Entity }}App; SetupRouter calls Setup{{ .Entity }}(router, svc).
+      (http/init.go's SetupRouter already calls both commands.SetupRouter and queries.SetupRouter.)
+
+      ── DECIDE ───────────────────────────────────────────────────────────────────
+        • Does List need filters beyond cursor/limit (status, owner, date range, search)?
+          Parse from r.URL.Query() and thread through domain.ListParams (or a richer struct).
+        • Does the detail view differ from the list summary? ToPublic{{ .Entity }} for detail,
+          a separate ToSummary{{ .Entity }} for list items.
+        • Extra read routes? Append via {{ .Entity | lower }}QueriesActions (init() registrar).
+
+      ── HANDLER PATTERN (fill in getByID/list) ──────────────────────────────────
+
+        func (s {{ .Entity }}Svc) getByID(w http.ResponseWriter, r *http.Request) {
+            actor, err := shared.ActorFromRequest(r.Context(), r)
+            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+            id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
+            item, err := s.App.Get{{ .Entity }}ByID(r.Context(), actor, id)
+            if err != nil { shared.WriteDomainError(w, err); return }   // maps Err{{ .Entity }}NotFound → 404
+            shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}(item))
+        }
+
+        func (s {{ .Entity }}Svc) list(w http.ResponseWriter, r *http.Request) {
+            actor, err := shared.ActorFromRequest(r.Context(), r)
+            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
+            params := domain.ListParams{Cursor: r.URL.Query().Get("cursor")}
+            if v := r.URL.Query().Get("limit"); v != "" { params.Limit, _ = strconv.Atoi(v) }
+            result, err := s.App.List{{ .Entity }}s(r.Context(), actor, params)
+            if err != nil { shared.WriteDomainError(w, err); return }
+            shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}List(result))   // always emits items:[], never null
+        }
+
+      NEXT: add_http_converter (the converters these handlers call), add_public_types (the DTO fields).
+
+  - command: add_inbound_grpc_commands
+    description: Add gRPC command handlers (write ops) for an entity — also creates the gRPC transport socle (actor.go, init.go) on first call
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
     files:
       - source: internal/context/inbound/grpc/actor.go.tmpl
         destination: internal/{{ .Context }}/inbound/grpc/actor.go
+        on_conflict: skip
+      - source: internal/context/inbound/grpc/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/init.go
+        on_conflict: skip
+      - source: internal/context/inbound/grpc/commands/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/commands/init.go
+        on_conflict: skip
+      - source: internal/context/inbound/grpc/commands/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/commands/{{ .Entity | lower }}.go
     hint: |
-      gRPC inbound transport added to {{ .Context }}.
+      gRPC command handler skeleton for {{ .Entity }} added (transport socle if missing + per-entity handler).
 
-      Created:
-        internal/{{ .Context }}/inbound/grpc/actor.go                  — ActorFromContext helper
+      Created (socle, skipped if present):
+        internal/{{ .Context }}/inbound/grpc/actor.go            — ActorFromContext (header-trusting default)
+        internal/{{ .Context }}/inbound/grpc/init.go             — SetupServer (shared interceptors)
+        internal/{{ .Context }}/inbound/grpc/commands/init.go    — package doc
+      Created (per entity):
+        internal/{{ .Context }}/inbound/grpc/commands/{{ .Entity | lower }}.go — {{ .Entity | lower }}Handler{commands} + Setup{{ .Entity }}Services (empty until proto stubs exist)
 
-      NEXT STEPS:
-        - Add the proto file:        add_grpc_proto
-        - Per-entity gRPC handlers:  add_grpc_handler (or add_grpc_commands / add_grpc_queries / add_grpc_converter)
+      ── BUILD IT OUT ─────────────────────────────────────────────────────────────
+        1. Decide the RPCs (mirror {{ .Entity }}Commands; real names if your domain has them — PlaceOrder, not CreateOrder).
+           Define them in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto (add_grpc_proto scaffolds the file).
+        2. Run protoc (see the Makefile) → pkg/{{ .Context }}/grpc/*.pb.go.
+        3. Register the server in Setup{{ .Entity }}Services:  pb.Register{{ .Entity }}CommandsServer(srv, h)
+        4. One handler method per RPC:
+             func (h *{{ .Entity | lower }}Handler) Create{{ .Entity }}(ctx context.Context, req *pb.Create{{ .Entity }}Request) (*pb.Create{{ .Entity }}Response, error) {
+                 actor, err := grpc.ActorFromContext(ctx)
+                 if err != nil { return nil, status.Error(codes.Unauthenticated, err.Error()) }
+                 item, err := converters.To{{ .Entity }}Domain(req)
+                 if err != nil { return nil, status.Error(codes.InvalidArgument, err.Error()) }
+                 created, err := h.commands.Create{{ .Entity }}(ctx, actor, item)
+                 if err != nil { return nil, mapDomainErr(err) }
+                 return &pb.Create{{ .Entity }}Response{Item: converters.ToProto{{ .Entity }}(created)}, nil
+             }
+        Wire Setup{{ .Entity }}Services from wire_{{ .Entity | lower }}.go (or grpc/init.go's SetupServer).
 
-  - command: add_inbound_cli
-    description: Scaffold the CLI inbound transport for a context using Cobra (root command, output helper, CLI binary entry point)
+      NEXT: add_inbound_grpc_queries, add_grpc_converter, add_grpc_proto.
+
+  - command: add_inbound_grpc_queries
+    description: Add gRPC query handlers (read ops) for an entity — also creates the gRPC transport socle on first call
     variables:
       - key: Context
         description: Bounded context name
       - key: ModulePath
         description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+    files:
+      - source: internal/context/inbound/grpc/actor.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/actor.go
+        on_conflict: skip
+      - source: internal/context/inbound/grpc/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/init.go
+        on_conflict: skip
+      - source: internal/context/inbound/grpc/queries/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/queries/init.go
+        on_conflict: skip
+      - source: internal/context/inbound/grpc/queries/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/grpc/queries/{{ .Entity | lower }}.go
+    hint: |
+      gRPC query handler skeleton for {{ .Entity }} added (transport socle if missing + per-entity handler).
+
+      Created (per entity):
+        internal/{{ .Context }}/inbound/grpc/queries/{{ .Entity | lower }}.go — {{ .Entity | lower }}Handler{queries} + Setup{{ .Entity }}Services (empty until proto stubs)
+
+      Build out: define GetByID/List RPCs in the .proto, run protoc, register
+      pb.Register{{ .Entity }}QueriesServer(srv, h), add one handler method per RPC:
+        func (h *{{ .Entity | lower }}Handler) Get{{ .Entity }}ByID(ctx context.Context, req *pb.Get{{ .Entity }}ByIDRequest) (*pb.Get{{ .Entity }}ByIDResponse, error) {
+            actor, err := grpc.ActorFromContext(ctx)
+            if err != nil { return nil, status.Error(codes.Unauthenticated, err.Error()) }
+            item, err := h.queries.Get{{ .Entity }}ByID(ctx, actor, domain.{{ .Entity }}ID(req.Id))
+            if err != nil { return nil, mapDomainErr(err) }
+            return &pb.Get{{ .Entity }}ByIDResponse{Item: converters.ToProto{{ .Entity }}(item)}, nil
+        }
+
+  - command: add_inbound_cli_commands
+    description: Add CLI command sub-commands (write ops) for an entity using Cobra — also creates the CLI transport socle (root.go, shared/output.go, cmd/<ctx>-cli/main.go, commands/init.go) on first call
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
       - key: AppName
-        description: Application/project name (lowercase). Used in the CLI binary config loading.
+        description: Application/project name (lowercase). Used by cmd/<context>-cli/main.go config loading.
     files:
       - source: internal/context/inbound/cli/root.go.tmpl
         destination: internal/{{ .Context }}/inbound/cli/root.go
+        on_conflict: skip
       - source: internal/context/inbound/cli/shared/output.go.tmpl
         destination: internal/{{ .Context }}/inbound/cli/shared/output.go
+        on_conflict: skip
+      - source: internal/context/inbound/cli/commands/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/cli/commands/init.go
+        on_conflict: skip
       - source: cmd/context-cli/main.go.tmpl
         destination: cmd/{{ .Context }}-cli/main.go
+        on_conflict: skip
+      - source: internal/context/inbound/cli/commands/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/cli/commands/{{ .Entity | lower }}.go
     hint: |
-      CLI inbound transport added to {{ .Context }}.
+      CLI command sub-commands for {{ .Entity }} added (transport socle if missing + per-entity group).
 
-      Created:
-        internal/{{ .Context }}/inbound/cli/root.go                       — cobra root command (New() returns *cobra.Command)
-        internal/{{ .Context }}/inbound/cli/shared/output.go              — WriteJSON + WriteDeleted helpers
-        cmd/{{ .Context }}-cli/main.go                                    — CLI binary entry point (load config, wire repos, execute cobra)
+      Created (socle, skipped if present):
+        internal/{{ .Context }}/inbound/cli/root.go               — cobra root command (New())
+        internal/{{ .Context }}/inbound/cli/shared/output.go      — WriteJSON / WriteDeleted helpers
+        internal/{{ .Context }}/inbound/cli/commands/init.go      — package doc
+        cmd/{{ .Context }}-cli/main.go                            — CLI binary entry point (load config, wire repos, execute cobra)
+      Created (per entity):
+        internal/{{ .Context }}/inbound/cli/commands/{{ .Entity | lower }}.go — Setup{{ .Entity }}Cmds + create/update/delete sub-commands ("not implemented" RunE)
 
-      DEPENDENCY:
-        Add cobra to go.mod:
-          go get github.com/spf13/cobra@latest
+      DEPENDENCY: add cobra to go.mod —  go get github.com/spf13/cobra@latest
 
-      NEXT STEPS:
-        - Per-entity CLI handlers (commands + queries):
-            scaffor execute go-hexagonal add_cli_handler --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity=YourEntity
-        - After adding entities, wire them in cmd/{{ .Context }}-cli/main.go (see TODO comments)
-        - Build: go build ./cmd/{{ .Context }}-cli
+      ── BUILD IT OUT ─────────────────────────────────────────────────────────────
+        1. Bind flags to the request fields:  cmd.Flags().StringVar(&req.Name, "name", "", "..."); cmd.MarkFlagRequired("name")
+        2. Implement each RunE:
+             actor := /* build a *domain.Actor — from a --actor flag, env, or a config block */
+             item, err := converters.To{{ .Entity }}Domain(req); if err != nil { return err }
+             created, err := h.svc.Create{{ .Entity }}(cmd.Context(), actor, item); if err != nil { return err }
+             return shared.WriteJSON(converters.ToPublic{{ .Entity }}(created))
+           update = read-before-write (Get{{ .Entity }}ByID → setters → Update{{ .Entity }}); delete = Delete{{ .Entity }} + shared.WriteDeleted.
+        3. Wire in cmd/{{ .Context }}-cli/main.go:  clicommands.Setup{{ .Entity }}Cmds(root, a)
+        4. Smoke: go run ./cmd/{{ .Context }}-cli {{ .Entity | lower }} create --help
+
+      NEXT: add_inbound_cli_queries (the get/list sub-commands).
+
+  - command: add_inbound_cli_queries
+    description: Add CLI query sub-commands (read ops) for an entity using Cobra — also creates the CLI transport socle on first call
+    variables:
+      - key: Context
+        description: Bounded context name
+      - key: ModulePath
+        description: Go module path
+      - key: Entity
+        description: Entity name in PascalCase
+      - key: AppName
+        description: Application/project name (lowercase). Used by cmd/<context>-cli/main.go config loading.
+    files:
+      - source: internal/context/inbound/cli/root.go.tmpl
+        destination: internal/{{ .Context }}/inbound/cli/root.go
+        on_conflict: skip
+      - source: internal/context/inbound/cli/shared/output.go.tmpl
+        destination: internal/{{ .Context }}/inbound/cli/shared/output.go
+        on_conflict: skip
+      - source: internal/context/inbound/cli/queries/init.go.tmpl
+        destination: internal/{{ .Context }}/inbound/cli/queries/init.go
+        on_conflict: skip
+      - source: cmd/context-cli/main.go.tmpl
+        destination: cmd/{{ .Context }}-cli/main.go
+        on_conflict: skip
+      - source: internal/context/inbound/cli/queries/entity.go.tmpl
+        destination: internal/{{ .Context }}/inbound/cli/queries/{{ .Entity | lower }}.go
+    hint: |
+      CLI query sub-commands for {{ .Entity }} added (transport socle if missing + per-entity get/list).
+
+      Created (per entity):
+        internal/{{ .Context }}/inbound/cli/queries/{{ .Entity | lower }}.go — Setup{{ .Entity }}Queries (adds `get` + `list` to the `{{ .Entity | lower }}` group, creating it if needed)
+
+      Implement each RunE (build a *domain.Actor and thread it through):
+        get:  id := domain.{{ .Entity }}ID(args[0]); item, err := h.queries.Get{{ .Entity }}ByID(cmd.Context(), actor, id); ...; return shared.WriteJSON(converters.ToPublic{{ .Entity }}(item))
+        list: params := domain.ListParams{Cursor: cursor, Limit: limit}; result, err := h.queries.List{{ .Entity }}s(cmd.Context(), actor, params); ...; return shared.WriteJSON(converters.ToPublic{{ .Entity }}List(result))
+
+      Wire in cmd/{{ .Context }}-cli/main.go:  cliqueries.Setup{{ .Entity }}Queries(root, a)
 
   # ──────────────────────────────────────────────
   # DOMAIN LAYER — atomic domain additions
@@ -751,8 +1068,7 @@ commands:
       - key: Entity
         description: Entity name in PascalCase
       - key: Adapter
-        description: Adapter technology name (e.g. pg, redis, mongo). Used to auto-wire the entity.
-        default: "pg"
+        description: Adapter technology name (e.g. pg, redis, mongo). Used to auto-wire the entity (passed to add_wire). Pass "pg" unless you wired a different adapter package.
     files:
       - source: internal/context/app/entity.go.tmpl
         destination: internal/{{ .Context }}/app/{{ .Entity | lower }}.go
@@ -963,189 +1279,10 @@ commands:
 
       The Set{{ .Entity }}Repo setter and field wiring are handled by add_app_service.
 
-  #──────────────────────────────────────────────
-  # INBOUND LAYER — commands, queries, converters
   # ──────────────────────────────────────────────
-  - command: add_http_commands
-    description: Add HTTP command handlers (write operations) for an entity
-    variables:
-      - key: Context
-        description: Bounded context name
-      - key: ModulePath
-        description: Go module path
-      - key: Entity
-        description: Entity name in PascalCase
-      - key: EntityHasActions
-        description: "true if entity uses action routes (pay, cancel, etc.) instead of PUT/DELETE — suppresses update/delete handler generation"
-        default: "false"
-    files:
-      - source: internal/context/inbound/http/commands/entity.go.tmpl
-        destination: internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go
-    shell_commands:
-      # Add {{ .Entity }}App embedding to the package App interface in init.go (idempotent).
-      - command: |-
-          go-surgeon symbol App --dir internal/{{ .Context }}/inbound/http/commands --body \
-            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
-            | sed 's/^[0-9]*: //' \
-            | awk '/^type App interface {$/,/^}$/' \
-            | awk -v m="	{{ .Entity }}App" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
-            | go-surgeon update-interface --file internal/{{ .Context }}/inbound/http/commands/init.go --id App
-      # Add Setup{{ .Entity }}(router, svc) call to the SetupRouter function (idempotent).
-      - command: |-
-          go-surgeon symbol SetupRouter --dir internal/{{ .Context }}/inbound/http/commands --body \
-            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
-            | sed 's/^[0-9]*: //' \
-            | awk '/^func SetupRouter/,/^}$/' \
-            | awk -v m="	Setup{{ .Entity }}(router, svc)" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
-            | go-surgeon update-func --file internal/{{ .Context }}/inbound/http/commands/init.go --id SetupRouter
-    hint: |
-      HTTP command handlers for {{ .Entity }} added (route wiring + 501-stub bodies).
-
-      Created:
-        internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go
-          {{ .Entity }}App interface, {{ .Entity }}Svc, Setup{{ .Entity }}, the action-registrar
-          slice, and create/update/delete handlers that currently return 501
-
-      Updated (via go-surgeon):
-        internal/{{ .Context }}/inbound/http/commands/init.go — App embeds {{ .Entity }}App;
-        SetupRouter calls Setup{{ .Entity }}(router, svc). No edit to wire_{{ .Entity | lower }}.go.
-
-      ── DECIDE THE ROUTES ────────────────────────────────────────────────────────
-        • Pure CRUD? keep PUT /{{ .Entity | lower }}s/{id} + DELETE here.
-        • State machine (order: place → pay → fulfill)? Drop update/delete and model
-          each transition with add_http_action instead — pass EntityHasActions=true
-          when scaffolding to suppress the PUT/DELETE routes.
-        • Bulk / nested-resource routes? Append them via {{ .Entity | lower }}CommandsActions
-          (init() registrar), same mechanism add_http_action uses.
-
-      ── HANDLER PATTERN (fill in create/update/delete) ──────────────────────────
-
-        func (s {{ .Entity }}Svc) create(w http.ResponseWriter, r *http.Request) {
-            actor, err := shared.ActorFromRequest(r.Context(), r)
-            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
-
-            var req v1.Create{{ .Entity }}Request
-            if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-                shared.WriteErrorJSON(w, http.StatusBadRequest, "INVALID_JSON", err.Error()); return
-            }
-            if err := s.Validator.Struct(req); err != nil {
-                shared.WriteErrorJSON(w, http.StatusBadRequest, "VALIDATION_FAILED", err.Error()); return
-            }
-            item, err := converters.To{{ .Entity }}Domain(req)
-            if err != nil { shared.WriteDomainError(w, err); return }
-            created, err := s.App.Create{{ .Entity }}(r.Context(), actor, item)
-            if err != nil { shared.WriteDomainError(w, err); return }
-            shared.WriteJSON(w, http.StatusCreated, converters.ToPublic{{ .Entity }}(created))
-        }
-
-        // update — READ-BEFORE-WRITE (never blind-overwrite: that turns PATCH into a full PUT)
-        func (s {{ .Entity }}Svc) update(w http.ResponseWriter, r *http.Request) {
-            actor, err := shared.ActorFromRequest(r.Context(), r)
-            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
-            var req v1.Update{{ .Entity }}Request
-            // decode + validate as above ...
-            id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
-            item, err := s.App.Get{{ .Entity }}ByID(r.Context(), actor, id)         // load current state
-            if err != nil { shared.WriteDomainError(w, err); return }
-            // apply only the fields present in req, via domain SETTERS (not struct writes):
-            // if req.Name != nil { if err := item.SetName(*req.Name); err != nil { shared.WriteDomainError(w, err); return } }
-            updated, err := s.App.Update{{ .Entity }}(r.Context(), actor, item)
-            if err != nil { shared.WriteDomainError(w, err); return }
-            shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}(updated))
-        }
-
-        func (s {{ .Entity }}Svc) delete(w http.ResponseWriter, r *http.Request) {
-            actor, err := shared.ActorFromRequest(r.Context(), r)
-            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
-            id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
-            if err := s.App.Delete{{ .Entity }}(r.Context(), actor, id); err != nil { shared.WriteDomainError(w, err); return }
-            w.WriteHeader(http.StatusNoContent)
-        }
-
-      (Imports get added by `goimports` on save. If you renamed the usecase methods,
-      call those names instead of Create/Update/Delete.)
-
-      TESTS: HTTP handlers are exercised e2e (tests/e2e-api/{{ .Entity | lower }}_test.go) against
-        Mock{{ .Entity }}Commands. After implementing, generate per-handler stubs:
-          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.create
-        Cover per handler: happy path, 400 validation, 404 not-found, 403 authz.
-
-  - command: add_http_queries
-    description: Add HTTP query handlers (read operations) for an entity
-    variables:
-      - key: Context
-        description: Bounded context name
-      - key: ModulePath
-        description: Go module path
-      - key: Entity
-        description: Entity name in PascalCase
-    files:
-      - source: internal/context/inbound/http/queries/entity.go.tmpl
-        destination: internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go
-    shell_commands:
-      # Add {{ .Entity }}App embedding to the package App interface in init.go (idempotent).
-      - command: |-
-          go-surgeon symbol App --dir internal/{{ .Context }}/inbound/http/queries --body \
-            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
-            | sed 's/^[0-9]*: //' \
-            | awk '/^type App interface {$/,/^}$/' \
-            | awk -v m="	{{ .Entity }}App" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
-            | go-surgeon update-interface --file internal/{{ .Context }}/inbound/http/queries/init.go --id App
-      # Add Setup{{ .Entity }}(router, svc) call to the SetupRouter function (idempotent).
-      - command: |-
-          go-surgeon symbol SetupRouter --dir internal/{{ .Context }}/inbound/http/queries --body \
-            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
-            | sed 's/^[0-9]*: //' \
-            | awk '/^func SetupRouter/,/^}$/' \
-            | awk -v m="	Setup{{ .Entity }}(router, svc)" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
-            | go-surgeon update-func --file internal/{{ .Context }}/inbound/http/queries/init.go --id SetupRouter
-    hint: |
-      HTTP query handlers for {{ .Entity }} added (route wiring + 501-stub bodies).
-
-      Created:
-        internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go
-          {{ .Entity }}App ({{ .Entity }}Queries), {{ .Entity }}Svc, Setup{{ .Entity }}, the
-          query-registrar slice, and getByID/list handlers that currently return 501
-
-      Updated (via go-surgeon):
-        internal/{{ .Context }}/inbound/http/queries/init.go — App embeds {{ .Entity }}App;
-        SetupRouter calls Setup{{ .Entity }}(router, svc).
-
-      ── DECIDE ───────────────────────────────────────────────────────────────────
-        • Does List need filters beyond cursor/limit (status, owner, date range, search)?
-          Parse them from r.URL.Query() and thread them through domain.ListParams (or a
-          richer params struct you add to the domain).
-        • Does the "detail" view differ from the list "summary"? Then ToPublic{{ .Entity }}
-          for the detail endpoint and a separate ToSummary{{ .Entity }} for list items.
-        • Extra read routes (e.g. /{{ .Entity | lower }}s/{id}/history)? Append via
-          {{ .Entity | lower }}QueriesActions (init() registrar).
-
-      ── HANDLER PATTERN (fill in getByID/list) ──────────────────────────────────
-
-        func (s {{ .Entity }}Svc) getByID(w http.ResponseWriter, r *http.Request) {
-            actor, err := shared.ActorFromRequest(r.Context(), r)
-            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
-            id := domain.{{ .Entity }}ID(mux.Vars(r)["id"])
-            item, err := s.App.Get{{ .Entity }}ByID(r.Context(), actor, id)
-            if err != nil { shared.WriteDomainError(w, err); return }   // maps Err{{ .Entity }}NotFound → 404
-            shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}(item))
-        }
-
-        func (s {{ .Entity }}Svc) list(w http.ResponseWriter, r *http.Request) {
-            actor, err := shared.ActorFromRequest(r.Context(), r)
-            if err != nil { shared.WriteErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", err.Error()); return }
-            params := domain.ListParams{Cursor: r.URL.Query().Get("cursor")}
-            if v := r.URL.Query().Get("limit"); v != "" { params.Limit, _ = strconv.Atoi(v) }
-            result, err := s.App.List{{ .Entity }}s(r.Context(), actor, params)
-            if err != nil { shared.WriteDomainError(w, err); return }
-            // ToPublic{{ .Entity }}List always emits items:[] (never null) — that's the contract.
-            shared.WriteJSON(w, http.StatusOK, converters.ToPublic{{ .Entity }}List(result))
-        }
-
-      TESTS: exercised e2e against Mock{{ .Entity }}Queries. After implementing:
-          go-surgeon test -f internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.getByID
-        Cover: happy path, 404, empty list returns [] not null, cursor advances across pages.
-
+  # INBOUND — converters, actions, composite "handler" pointers, gRPC proto
+  # (per-entity handlers + transport socle: see add_inbound_<transport>_{commands,queries} above)
+  # ──────────────────────────────────────────────
   - command: add_http_converter
     description: Add inbound converters between public API types and domain types
     variables:
@@ -1211,7 +1348,7 @@ commands:
       Each test should cover: field mapping correctness, zero values, boundary values.
 
   - command: add_http_handler
-    description: Add both HTTP command and query handlers for an entity with converters
+    description: (informational) Prints the sequence to add a full HTTP surface for an entity — creates no files
     variables:
       - key: Context
         description: Bounded context name
@@ -1220,21 +1357,24 @@ commands:
       - key: Entity
         description: Entity name in PascalCase
     files: []
-    post_commands:
-      - add_http_commands
-      - add_http_queries
-      - add_http_converter
     hint: |
-      Full HTTP surface for {{ .Entity }} added: commands + queries + converters (the
-      three sub-command hints with the handler patterns were just printed above).
+      To expose {{ .Entity }} over HTTP, run these (in order — the first one also creates the
+      HTTP transport socle: http/init.go, shared/*, e2e harness, and wires inboundhttp.SetupRouter):
 
-      What you got: route wiring (Setup{{ .Entity }} hooked into SetupRouter), the
-      {{ .Entity }}Svc/{{ .Entity }}App types, and 501-stub handler bodies + skeleton
-      converters. Nothing is implemented — fill it in from the printed hints.
+        1. scaffor execute go-hexagonal add_inbound_http_commands --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              (write handlers: POST/PUT/DELETE — for a state-machine entity, delete the generated update/delete + routes and use add_http_action)
+        2. scaffor execute go-hexagonal add_inbound_http_queries  --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              (read handlers: GET by id, GET list)
+        3. scaffor execute go-hexagonal add_http_converter        --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              (domain <-> public DTO converters + their unit-test stubs)
+        4. scaffor execute go-hexagonal add_public_types          --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              (the v1.{{ .Entity }}Request/Response struct fields — or just edit pkg/{{ .Context }}/http/v1/{{ .Entity | lower }}.go)
+        5. (optional) scaffor execute go-hexagonal add_http_action --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Action=Pay
+              (per non-CRUD state transition)
 
-      DECIDE: pure CRUD, or a state machine? For the latter, drop PUT/DELETE
-      (scaffold add_http_commands with EntityHasActions=true) and model transitions
-      with add_http_action. Does List need filters beyond cursor/limit? Add them.
+      Each command prints its own hint with the handler/converter patterns to fill in.
+      Run `add_inbound_http_commands` again with a different --set Entity for each entity —
+      it skips the socle the second time.
 
   - command: add_http_action
     description: Add an HTTP action endpoint (non-CRUD state transition, e.g. pay, cancel, fulfill)
@@ -1258,6 +1398,8 @@ commands:
       Route: POST /api/v1/tenants/{tenantID}/{{ .Entity | lower }}s/{id}/{{ .Action | lower }}
       Auto-registered via init() into {{ .Entity | lower }}CommandsActions — Setup{{ .Entity }}
       picks it up; no edit to wire_{{ .Entity | lower }}.go.
+      (Requires add_inbound_http_commands to have run for {{ .Entity }} — it defines {{ .Entity }}Svc
+      and the {{ .Entity | lower }}CommandsActions slice this file appends to.)
 
       ── WIRE IT UP (4 places) ────────────────────────────────────────────────────
         1. Domain: add the transition method on the entity (it enforces the source state):
@@ -1283,76 +1425,6 @@ commands:
 
       NOTE: one file per action. For an entity with many (pay, cancel, fulfill, refund),
       fold them into one {{ .Entity | lower }}_actions.go and delete the per-action files.
-
-  - command: add_grpc_commands
-    description: Add gRPC command handlers (write operations) for an entity
-    variables:
-      - key: Context
-        description: Bounded context name
-      - key: ModulePath
-        description: Go module path
-      - key: Entity
-        description: Entity name in PascalCase
-    files:
-      - source: internal/context/inbound/grpc/commands/entity.go.tmpl
-        destination: internal/{{ .Context }}/inbound/grpc/commands/{{ .Entity | lower }}.go
-    hint: |
-      gRPC command handler skeleton for {{ .Entity }} added.
-
-      Created:
-        internal/{{ .Context }}/inbound/grpc/commands/{{ .Entity | lower }}.go
-          {{ .Entity | lower }}Handler{commands} + Setup{{ .Entity }}Services — empty until proto stubs exist.
-
-      ── BUILD IT OUT ─────────────────────────────────────────────────────────────
-        1. Decide the RPCs (mirror {{ .Entity }}Commands; use real names if your domain
-           has them — PlaceOrder, not CreateOrder). Define them in
-           pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto (add_grpc_proto scaffolds the file).
-        2. Run protoc (see the Makefile) → pkg/{{ .Context }}/grpc/*.pb.go.
-        3. Register the server in Setup{{ .Entity }}Services:  pb.Register{{ .Entity }}CommandsServer(srv, h)
-        4. One handler method per RPC:
-             func (h *{{ .Entity | lower }}Handler) Create{{ .Entity }}(ctx context.Context, req *pb.Create{{ .Entity }}Request) (*pb.Create{{ .Entity }}Response, error) {
-                 actor, err := grpc.ActorFromContext(ctx)
-                 if err != nil { return nil, status.Error(codes.Unauthenticated, err.Error()) }
-                 item, err := converters.To{{ .Entity }}Domain(req)
-                 if err != nil { return nil, status.Error(codes.InvalidArgument, err.Error()) }
-                 created, err := h.commands.Create{{ .Entity }}(ctx, actor, item)
-                 if err != nil { return nil, mapDomainErr(err) }   // map Err{{ .Entity }}NotFound → codes.NotFound, etc.
-                 return &pb.Create{{ .Entity }}Response{Item: converters.ToProto{{ .Entity }}(created)}, nil
-             }
-        Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration.
-
-  - command: add_grpc_queries
-    description: Add gRPC query handlers (read operations) for an entity
-    variables:
-      - key: Context
-        description: Bounded context name
-      - key: ModulePath
-        description: Go module path
-      - key: Entity
-        description: Entity name in PascalCase
-    files:
-      - source: internal/context/inbound/grpc/queries/entity.go.tmpl
-        destination: internal/{{ .Context }}/inbound/grpc/queries/{{ .Entity | lower }}.go
-    hint: |
-      gRPC query handler skeleton for {{ .Entity }} added.
-
-      Created:
-        internal/{{ .Context }}/inbound/grpc/queries/{{ .Entity | lower }}.go
-          {{ .Entity | lower }}Handler{queries} + Setup{{ .Entity }}Services — empty until proto stubs exist.
-
-      ── BUILD IT OUT ─────────────────────────────────────────────────────────────
-        1. Define the GetByID/List RPCs in pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto.
-        2. Run protoc → pkg/{{ .Context }}/grpc/*.pb.go.
-        3. Register the server in Setup{{ .Entity }}Services:  pb.Register{{ .Entity }}QueriesServer(srv, h)
-        4. One handler method per RPC:
-             func (h *{{ .Entity | lower }}Handler) Get{{ .Entity }}ByID(ctx context.Context, req *pb.Get{{ .Entity }}ByIDRequest) (*pb.Get{{ .Entity }}ByIDResponse, error) {
-                 actor, err := grpc.ActorFromContext(ctx)
-                 if err != nil { return nil, status.Error(codes.Unauthenticated, err.Error()) }
-                 item, err := h.queries.Get{{ .Entity }}ByID(ctx, actor, domain.{{ .Entity }}ID(req.Id))
-                 if err != nil { return nil, mapDomainErr(err) }
-                 return &pb.Get{{ .Entity }}ByIDResponse{Item: converters.ToProto{{ .Entity }}(item)}, nil
-             }
-        Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration.
 
   - command: add_grpc_converter
     description: Add gRPC converters between proto types and domain types
@@ -1384,7 +1456,7 @@ commands:
           converting primitives to domain value types first.
 
   - command: add_grpc_handler
-    description: Add both gRPC command and query handlers for an entity with converters
+    description: (informational) Prints the sequence to add a full gRPC surface for an entity — creates no files
     variables:
       - key: Context
         description: Bounded context name
@@ -1393,12 +1465,15 @@ commands:
       - key: Entity
         description: Entity name in PascalCase
     files: []
-    post_commands:
-      - add_grpc_commands
-      - add_grpc_queries
-      - add_grpc_converter
     hint: |
-      Full gRPC handler for {{ .Entity }} added (commands + queries + converters).
+      To expose {{ .Entity }} over gRPC, run these (the first one also creates the gRPC
+      transport socle: grpc/actor.go, grpc/init.go):
+
+        1. scaffor execute go-hexagonal add_inbound_grpc_commands --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+        2. scaffor execute go-hexagonal add_inbound_grpc_queries  --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+        3. scaffor execute go-hexagonal add_grpc_converter        --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+        4. scaffor execute go-hexagonal add_grpc_proto            --set Context={{ .Context }} --set ModulePath={{ .ModulePath }}   (if not already done)
+        5. protoc … → pkg/{{ .Context }}/grpc/*.pb.go, then fill in the handler methods (each command's hint shows the pattern).
 
   - command: add_grpc_proto
     description: Add a proto file for a bounded context
@@ -1419,83 +1494,8 @@ commands:
       NEXT STEP — generate Go code:
         protoc --go_out=. --go-grpc_out=. pkg/{{ .Context }}/grpc/proto/{{ .Context }}.proto
 
-  # ──────────────────────────────────────────────
-  # CLI INBOUND — cobra command handlers
-  # ──────────────────────────────────────────────
-  - command: add_cli_commands
-    description: Add CLI command handlers (write operations) for an entity using Cobra
-    variables:
-      - key: Context
-        description: Bounded context name
-      - key: ModulePath
-        description: Go module path
-      - key: Entity
-        description: Entity name in PascalCase
-    files:
-      - source: internal/context/inbound/cli/commands/entity.go.tmpl
-        destination: internal/{{ .Context }}/inbound/cli/commands/{{ .Entity | lower }}.go
-    hint: |
-      CLI command sub-commands for {{ .Entity }} added (cobra wiring + "not implemented" RunE bodies).
-
-      Created:
-        internal/{{ .Context }}/inbound/cli/commands/{{ .Entity | lower }}.go
-          Setup{{ .Entity }}Cmds (the `{{ .Entity | lower }}` group) + create/update/delete sub-commands.
-
-      ── BUILD IT OUT ─────────────────────────────────────────────────────────────
-        1. Decide the sub-commands and flags. CRUD by default; a state-machine entity
-           might want `{{ .Entity | lower }} pay <id>` / `cancel <id>` instead of `update`.
-        2. Bind flags to the request fields:
-             cmd.Flags().StringVar(&req.Name, "name", "", "{{ .Entity }} name (required)")
-             cmd.MarkFlagRequired("name")
-        3. Implement each RunE. Pattern (create):
-             actor := /* build a *domain.Actor — from a --actor flag, env, or a config block */
-             item, err := converters.To{{ .Entity }}Domain(req)
-             if err != nil { return err }
-             created, err := h.svc.Create{{ .Entity }}(cmd.Context(), actor, item)
-             if err != nil { return err }   // cobra prints it to stderr
-             return shared.WriteJSON(converters.ToPublic{{ .Entity }}(created))
-           update is read-before-write: Get{{ .Entity }}ByID → apply patch via domain setters → Update{{ .Entity }}.
-           delete: id := domain.{{ .Entity }}ID(args[0]); h.svc.Delete{{ .Entity }}(cmd.Context(), actor, id); shared.WriteDeleted(args[0]).
-        4. Wire in cmd/{{ .Context }}-cli/main.go:  clicommands.Setup{{ .Entity }}Cmds(root, a)
-        5. Smoke: go run ./cmd/{{ .Context }}-cli {{ .Entity | lower }} create --help
-
-  - command: add_cli_queries
-    description: Add CLI query handlers (read operations) for an entity using Cobra
-    variables:
-      - key: Context
-        description: Bounded context name
-      - key: ModulePath
-        description: Go module path
-      - key: Entity
-        description: Entity name in PascalCase
-    files:
-      - source: internal/context/inbound/cli/queries/entity.go.tmpl
-        destination: internal/{{ .Context }}/inbound/cli/queries/{{ .Entity | lower }}.go
-    hint: |
-      CLI query sub-commands for {{ .Entity }} added (cobra wiring + "not implemented" RunE bodies).
-
-      Created:
-        internal/{{ .Context }}/inbound/cli/queries/{{ .Entity | lower }}.go
-          Setup{{ .Entity }}Queries (adds `get` + `list` to the `{{ .Entity | lower }}` group,
-          creating the group if Setup{{ .Entity }}Cmds hasn't — no duplicates).
-
-      ── IMPLEMENT THE RunE BODIES ────────────────────────────────────────────────
-        Build a *domain.Actor in the entry point (or per-command from a flag/env) and
-        thread it through — the usecase methods take it, same as HTTP/gRPC.
-          get:  id := domain.{{ .Entity }}ID(args[0])
-                item, err := h.queries.Get{{ .Entity }}ByID(cmd.Context(), actor, id)
-                if err != nil { return err }
-                return shared.WriteJSON(converters.ToPublic{{ .Entity }}(item))
-          list: params := domain.ListParams{Cursor: cursor, Limit: limit}   // already bound to --cursor/--limit
-                result, err := h.queries.List{{ .Entity }}s(cmd.Context(), actor, params)
-                if err != nil { return err }
-                return shared.WriteJSON(converters.ToPublic{{ .Entity }}List(result))
-
-      Wire in cmd/{{ .Context }}-cli/main.go:  cliqueries.Setup{{ .Entity }}Queries(root, a)
-      Smoke: go run ./cmd/{{ .Context }}-cli {{ .Entity | lower }} list --help
-
   - command: add_cli_handler
-    description: Add both CLI command and query handlers for an entity
+    description: (informational) Prints the sequence to add a full CLI surface for an entity — creates no files
     variables:
       - key: Context
         description: Bounded context name
@@ -1504,33 +1504,39 @@ commands:
       - key: Entity
         description: Entity name in PascalCase
     files: []
-    post_commands:
-      - add_cli_commands
-      - add_cli_queries
     hint: |
-      Full CLI handler for {{ .Entity }} added (commands + queries).
+      To expose {{ .Entity }} via the CLI, run these (the first one also creates the CLI
+      transport socle: cli/root.go, cli/shared/output.go, cmd/{{ .Context }}-cli/main.go):
 
-      Wire both in cmd/{{ .Context }}-cli/main.go (see TODO in that file):
-        clicommands.Setup{{ .Entity }}Cmds(root, a)
-        cliqueries.Setup{{ .Entity }}Queries(root, a)
+        1. scaffor execute go-hexagonal add_inbound_cli_commands --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set AppName=<appname>
+        2. scaffor execute go-hexagonal add_inbound_cli_queries  --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set AppName=<appname>
+        3. scaffor execute go-hexagonal add_http_converter       --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}   (CLI reuses the HTTP converters + v1 DTOs)
+
+      Then add cobra to go.mod (go get github.com/spf13/cobra@latest), fill in the RunE
+      bodies and flag bindings (each command's hint shows the pattern), and wire
+      clicommands.Setup{{ .Entity }}Cmds(root, a) / cliqueries.Setup{{ .Entity }}Queries(root, a) in cmd/{{ .Context }}-cli/main.go.
 
   # ──────────────────────────────────────────────
   # DOMAIN SERVICES — pure domain logic (no I/O)
   # ──────────────────────────────────────────────
   - command: add_domain_service
-    description: Add a pure domain service (business rules, calculations, policies — no I/O)
+    description: Add a pure domain service (business rules, calculations, policies — no I/O). Also creates the services package doc.go on first call.
     variables:
       - key: Context
         description: Bounded context name
       - key: Name
         description: Service name in PascalCase (e.g. Pricing, Eligibility)
     files:
+      - source: internal/context/domain/services/doc.go.tmpl
+        destination: internal/{{ .Context }}/domain/services/doc.go
+        on_conflict: skip
       - source: internal/context/domain/services/name.go.tmpl
         destination: internal/{{ .Context }}/domain/services/{{ .Name | lower }}.go
     hint: |
       Domain service {{ .Name }} added.
 
       Created:
+        internal/{{ .Context }}/domain/services/doc.go              — package doc (created once, skipped after)
         internal/{{ .Context }}/domain/services/{{ .Name | lower }}.go — pure domain logic, no I/O
 
       CONVENTION:
@@ -1748,7 +1754,7 @@ commands:
         scaffor execute go-hexagonal add_http_converter --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
 
   - command: add_consumed_event
-    description: Add a consumed event type (events this context receives)
+    description: Add a consumed event type (events this context receives). Also creates the events/v1 package socle (consumed.go) on first call.
     variables:
       - key: Context
         description: Bounded context name
@@ -1762,12 +1768,16 @@ commands:
           Omit when consuming an event emitted by the same context.
         optional: true
     files:
+      - source: pkg/context/events/v1/consumed.go.tmpl
+        destination: "pkg/{{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}/events/v1/consumed.go"
+        on_conflict: skip
       - source: pkg/context/events/v1/consumed_event.go.tmpl
         destination: "pkg/{{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}/events/v1/{{ .Event | lower }}_consumed.go"
     hint: |
       Consumed event {{ .Event }} added.
 
       Created:
+        pkg/{{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}/events/v1/consumed.go            — package socle (created once, skipped after)
         pkg/{{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}/events/v1/{{ .Event | lower }}_consumed.go — {{ .Event }}Event struct
 
       NOTE: event type lives in pkg/{{ if .SourceContext }}{{ .SourceContext }} (source context){{ else }}{{ .Context }}{{ end }}/events/v1.
@@ -1784,19 +1794,23 @@ commands:
           Without it, the event type is declared but no consumer reads messages.
 
   - command: add_emitted_event
-    description: Add an emitted event type (events this context publishes)
+    description: Add an emitted event type (events this context publishes). Also creates the events/v1 package socle (emitted.go) on first call.
     variables:
       - key: Context
         description: Bounded context name
       - key: Event
         description: Event name in PascalCase (e.g. NotificationSent)
     files:
+      - source: pkg/context/events/v1/emitted.go.tmpl
+        destination: pkg/{{ .Context }}/events/v1/emitted.go
+        on_conflict: skip
       - source: pkg/context/events/v1/emitted_event.go.tmpl
         destination: pkg/{{ .Context }}/events/v1/{{ .Event | lower }}_emitted.go
     hint: |
       Emitted event {{ .Event }} added to {{ .Context }}.
 
       Created:
+        pkg/{{ .Context }}/events/v1/emitted.go            — package socle (created once, skipped after)
         pkg/{{ .Context }}/events/v1/{{ .Event | lower }}_emitted.go — {{ .Event }}Event struct
 
       NEXT STEPS:
@@ -1852,12 +1866,15 @@ commands:
         description: Entity name in PascalCase
     files:
       - source: tests/e2e-api/entity_test.go.tmpl
-        destination: tests/e2e-api/{{ .Entity | lower }}_test.go
+        destination: tests/e2e-api/{{ .Context }}/{{ .Entity | lower }}_test.go
     hint: |
       E2E test placeholder for {{ .Entity }} added.
 
       Created:
-        tests/e2e-api/{{ .Entity | lower }}_test.go
+        tests/e2e-api/{{ .Context }}/{{ .Entity | lower }}_test.go
+
+      (Lives next to setup_test.go — same package e2e_api. setup_test.go is created by the
+      first add_inbound_http_commands for this context.)
 
       TESTS FOR THIS LAYER:
         E2E tests hit real HTTP endpoints against a fully wired stack (testcontainers).
@@ -1957,7 +1974,7 @@ commands:
   # COMPOSITE — full entity scaffold across all layers
   # ──────────────────────────────────────────────
   - command: add_entity
-    description: Scaffold a complete entity across all hexagonal layers (domain, repo, service, app, handler, types, tests)
+    description: (informational) Prints the ordered sequence of commands to scaffold a full entity — creates no files. Start with add_domain_entity (that one creates the entity .go file).
     variables:
       - key: Context
         description: Bounded context name
@@ -1966,53 +1983,55 @@ commands:
       - key: Entity
         description: Entity name in PascalCase
       - key: Adapter
-        description: Adapter technology name (e.g. pg, redis, mongo)
+        description: Adapter technology name (e.g. pg, redis, mongo). Only used to fill in the printed command sequence; defaults to "pg" in the text if omitted.
+        optional: true
     files: []
-    post_commands:
-      - add_domain_entity
-      - add_repository_interface
-      - add_usecase_interface
-      - add_app_service
-      - add_app_unit_test
-      - add_app_service_contract_test
-      - add_public_types
-      - add_http_handler
-      - add_e2e_test
-      - add_repository_adapter
     hint: |
-      Full entity {{ .Entity }} scaffolded across all layers of {{ .Context }}.
+      How to scaffold {{ .Entity }} across the hexagonal layers of {{ .Context }} — run these
+      commands IN ORDER. Each is atomic, prints its own rich hint, and (for the layers that
+      ship near-empty) tells you exactly what to write. add_entity itself creates nothing.
 
-      Heads-up: the domain entity (domain/{{ .Entity | lower }}.go) and the app
-      service (app/{{ .Entity | lower }}.go) are near-empty by design — you fill
-      them in. The repository interface/adapter, usecase interfaces, HTTP handlers
-      and public types come with a working CRUD starting point you adapt. See each
-      sub-command's hint (they were all just printed above) for the worked examples.
+        1. add_domain_entity        --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              -> creates internal/{{ .Context }}/domain/{{ .Entity | lower }}.go (typed ID + skeleton struct).
+              NOW: define {{ .Entity }}'s fields, setters, errors, New{{ .Entity }}, Reconstitute{{ .Entity }}
+              from that hint's worked example. Everything downstream depends on this.
 
-      WIRING (already done):
-        internal/{{ .Context }}/wire_{{ .Entity | lower }}.go registers the entity's adapters
-        AND inbound HTTP routes via init() — Setup() picks them up automatically.
-        No edits to init.go needed. Handlers receive usecase interfaces, not *app.App.
+        2. add_repository_interface --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              -> outbound port {{ .Entity }}Repository (+ mock + contract suite). Rename/extend methods to fit.
 
-      NEXT STEPS (roughly in order):
-        1. Add the {{ .Entity | lower }}Repo field to the App struct in app/config.go
-        2. Define {{ .Entity }}'s fields / setters / errors in domain/{{ .Entity | lower }}.go
-           (from the add_domain_entity hint) — and update Reconstitute{{ .Entity }} +
-           New{{ .Entity }} signatures everywhere they're used
-        3. Rename the CRUD methods on {{ .Entity }}Commands/{{ .Entity }}Queries to your
-           ubiquitous language, regenerate the mock (add_usecase_mock), update contract.go
-        4. Write the app service methods in app/{{ .Entity | lower }}.go (from the add_app_service hint)
-        5. Add the SQL columns in the repository adapter (+ scope filter if multi-tenant)
-        6. Implement the HTTP handler bodies and converters
-        7. Generate test stubs for what you wrote (add_app_unit_test / add_app_service_contract_test
-           print the procedure), red → green
+        3. add_usecase_interface    --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              -> inbound ports {{ .Entity }}Commands/{{ .Entity }}Queries (+ mock + contract suite).
+              Rename CRUD to your ubiquitous language (PlaceOrder...) then re-run add_usecase_mock.
 
-      IF YOU USE UnitOfWork:
-        UoW is per-context, not per-entity — add_entity does NOT scaffold it.
-        If a UoW already exists, wire the new entity's repo accessor into pgRepositories:
-          go-surgeon create --object func --file internal/{{ .Context }}/outbound/{{ .Adapter }}/uow.go \
-            -i pgRepositories.{{ .Entity }}s \
-            --content 'func (r *pgRepositories) {{ .Entity }}s() {{ .Entity | lower }}.{{ .Entity }}Repository { return New{{ .Entity }}RepositoryTx(r.tx) }'
-        Also add the method to the domain Repositories interface in domain/uow/uow.go.
+        4. add_app_service          --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter={{ .Adapter | default "pg" }}
+              -> creates internal/{{ .Context }}/app/{{ .Entity | lower }}.go (near-empty) + the wire file.
+              NOW: add the {{ .Entity | lower }}Repo field to app/config.go's App struct, then write the
+              methods from that hint's CRUD skeleton.
+
+        5. add_repository_adapter   --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter={{ .Adapter | default "pg" }}
+              -> working CRUD {{ .Adapter | default "pg" }} adapter (+ contract test). Map your entity's columns; add a
+              scope filter if multi-tenant (see that hint).
+
+        6. add_inbound_http_commands --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+        7. add_inbound_http_queries  --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              -> HTTP handlers (501 stubs you fill in). #6 also creates the HTTP transport socle and
+              wires inboundhttp.SetupRouter into the composition root. (gRPC/CLI: add_grpc_handler / add_cli_handler list those.)
+
+        8. add_http_converter       --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              -> domain <-> public DTO converters (+ unit-test stubs).
+
+        9. add_public_types         --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              -> the v1.{{ .Entity }}Request/Response struct fields (json + validate tags).
+
+       10. add_e2e_test             --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
+              -> e2e test placeholder for the full CRUD/IDOR/validation lifecycle.
+
+      Optional: add_http_action (per non-CRUD transition), add_publisher_interface/_adapter (events),
+      add_domain_uow + add_uow_adapter + add_uow_accessor (multi-aggregate atomic ops).
+
+      UnitOfWork note: UoW is per-context, not per-entity. If one already exists, after step 5 also
+      wire the entity's accessor:  scaffor execute go-hexagonal add_uow_accessor --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter={{ .Adapter | default "pg" }}
+
 
 test:
   - command: add_migration
