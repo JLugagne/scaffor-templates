@@ -186,7 +186,7 @@ commands:
   # INBOUND TRANSPORTS — HTTP and gRPC scaffolding
   # ──────────────────────────────────────────────
   - command: add_inbound_http
-    description: Scaffold the HTTP inbound transport for a context (router init, shared middleware, commands/queries init, public HTTP types)
+    description: Scaffold the HTTP inbound transport for a context (router init with App composition, shared middleware, commands/queries SetupRouter scaffolds, public HTTP types)
     variables:
       - key: Context
         description: Bounded context name
@@ -213,11 +213,17 @@ commands:
       HTTP inbound transport added to {{ .Context }}.
 
       Created:
-        internal/{{ .Context }}/inbound/http/init.go                   — shared middleware setup, router wiring
+        internal/{{ .Context }}/inbound/http/init.go                   — App interface (commands.App + queries.App), SetupRouter applies middleware and delegates to commands/queries
         internal/{{ .Context }}/inbound/http/shared/                   — errors, actor, middleware, health
-        internal/{{ .Context }}/inbound/http/commands/init.go          — shared validator factory (commands)
-        internal/{{ .Context }}/inbound/http/queries/init.go           — shared validator factory (queries)
+        internal/{{ .Context }}/inbound/http/commands/init.go          — HTTPService, App interface (composed per entity), SetupRouter
+        internal/{{ .Context }}/inbound/http/queries/init.go           — HTTPService, App interface (composed per entity), SetupRouter
         pkg/{{ .Context }}/http/v1/types.go                            — public HTTP types (requests, responses)
+
+      How routes get wired:
+        Each add_http_commands / add_http_queries appends an entity App to the package App
+        interface and a Setup<Entity>(router, svc) call to the package SetupRouter.
+        The context composition root only calls inboundhttp.SetupRouter(router, app, ...);
+        it never imports commands or queries directly.
 
       NEXT STEPS:
         - Per-entity HTTP handlers + converters: add_http_handler (or add_http_commands / add_http_queries / add_http_converter individually)
@@ -803,29 +809,52 @@ commands:
     files:
       - source: internal/context/inbound/http/commands/entity.go.tmpl
         destination: internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go
+    shell_commands:
+      # Add {{ .Entity }}App embedding to the package App interface in init.go (idempotent).
+      - command: |-
+          go-surgeon symbol App --dir internal/{{ .Context }}/inbound/http/commands --body \
+            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
+            | sed 's/^[0-9]*: //' \
+            | awk '/^type App interface {$/,/^}$/' \
+            | awk -v m="	{{ .Entity }}App" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
+            | go-surgeon update-interface --file internal/{{ .Context }}/inbound/http/commands/init.go --id App
+      # Add Setup{{ .Entity }}(router, svc) call to the SetupRouter function (idempotent).
+      - command: |-
+          go-surgeon symbol SetupRouter --dir internal/{{ .Context }}/inbound/http/commands --body \
+            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
+            | sed 's/^[0-9]*: //' \
+            | awk '/^func SetupRouter/,/^}$/' \
+            | awk -v m="	Setup{{ .Entity }}(router, svc)" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
+            | go-surgeon update-func --file internal/{{ .Context }}/inbound/http/commands/init.go --id SetupRouter
     hint: |
       HTTP commands for {{ .Entity }} added.
 
       Created:
         internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go — Create, Update, Delete handlers
 
+      Updated (via go-surgeon):
+        internal/{{ .Context }}/inbound/http/commands/init.go
+          - App interface now embeds {{ .Entity }}App
+          - SetupRouter now calls Setup{{ .Entity }}(router, svc)
+
       TESTS FOR THIS LAYER:
         HTTP command handlers are tested at the e2e level (tests/e2e-api/{{ .Entity | lower }}_test.go).
         They receive Mock{{ .Entity }}Commands so they never hit real infrastructure.
         Cover per handler: happy path, validation errors (400), not-found (404), auth errors (403).
         Generate stubs after implementing the handlers:
-          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i create{{ .Entity }}Handler
-          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i update{{ .Entity }}Handler
-          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i delete{{ .Entity }}Handler
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.create
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.update
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.delete
 
       NEXT STEPS:
-        1. Implement command handler methods (h.svc.Create{{ .Entity }}, etc.)
-           The update handler pattern: GetEntityByID → apply patch → UpdateEntity (both via h.svc)
-        2. Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration needed
+        1. Implement handler methods (s.App.Create{{ .Entity }}, etc.) — the update
+           handler pattern: GetEntityByID → apply patch → UpdateEntity.
+        2. Routes are registered by inboundhttp.SetupRouter via Setup{{ .Entity }} —
+           no manual registration in wire_{{ .Entity | lower }}.go needed.
         3. Write handler tests using the stubs above
 
-      NOTE: action routes added via add_http_action are auto-registered via init() —
-      no manual wiring needed in wire_{{ .Entity | lower }}.go.
+      NOTE: action routes added via add_http_action are auto-registered via init()
+      into the {{ .Entity | lower }}CommandsActions slice — no further wiring needed.
 
   - command: add_http_queries
     description: Add HTTP query handlers (read operations) for an entity
@@ -839,23 +868,46 @@ commands:
     files:
       - source: internal/context/inbound/http/queries/entity.go.tmpl
         destination: internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go
+    shell_commands:
+      # Add {{ .Entity }}App embedding to the package App interface in init.go (idempotent).
+      - command: |-
+          go-surgeon symbol App --dir internal/{{ .Context }}/inbound/http/queries --body \
+            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
+            | sed 's/^[0-9]*: //' \
+            | awk '/^type App interface {$/,/^}$/' \
+            | awk -v m="	{{ .Entity }}App" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
+            | go-surgeon update-interface --file internal/{{ .Context }}/inbound/http/queries/init.go --id App
+      # Add Setup{{ .Entity }}(router, svc) call to the SetupRouter function (idempotent).
+      - command: |-
+          go-surgeon symbol SetupRouter --dir internal/{{ .Context }}/inbound/http/queries --body \
+            | awk '/^Code \(Empty lines stripped\):$/{flag=1; next} flag' \
+            | sed 's/^[0-9]*: //' \
+            | awk '/^func SetupRouter/,/^}$/' \
+            | awk -v m="	Setup{{ .Entity }}(router, svc)" 'BEGIN{e=0} $0==m{e=1} /^}$/ && e==0 {print m} {print}' \
+            | go-surgeon update-func --file internal/{{ .Context }}/inbound/http/queries/init.go --id SetupRouter
     hint: |
       HTTP queries for {{ .Entity }} added.
 
       Created:
         internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go — GetByID, List handlers
 
+      Updated (via go-surgeon):
+        internal/{{ .Context }}/inbound/http/queries/init.go
+          - App interface now embeds {{ .Entity }}App
+          - SetupRouter now calls Setup{{ .Entity }}(router, svc)
+
       TESTS FOR THIS LAYER:
         HTTP query handlers are tested at the e2e level (tests/e2e-api/{{ .Entity | lower }}_test.go).
         They receive Mock{{ .Entity }}Queries so they never hit real infrastructure.
         Cover per handler: happy path, not-found (404), empty list returns [] not null, cursor pagination.
         Generate stubs after implementing the handlers:
-          go-surgeon test -f internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go -i get{{ .Entity }}ByIDHandler
-          go-surgeon test -f internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go -i list{{ .Entity }}sHandler
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.getByID
+          go-surgeon test -f internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go -i {{ .Entity }}Svc.list
 
       NEXT STEPS:
-        1. Implement query handler methods (h.queries.Get{{ .Entity }}ByID, h.queries.List{{ .Entity }}s)
-        2. Routes are auto-registered by wire_{{ .Entity | lower }}.go — no manual registration needed
+        1. Implement handler methods (s.App.Get{{ .Entity }}ByID, s.App.List{{ .Entity }}s)
+        2. Routes are registered by inboundhttp.SetupRouter via Setup{{ .Entity }} —
+           no manual registration in wire_{{ .Entity | lower }}.go needed.
         3. Write handler tests using the stubs above
 
   - command: add_http_converter
@@ -964,7 +1016,7 @@ commands:
         2. Implement in the app service
         3. Generate test stubs (commands above)
 
-      The route is auto-registered via init() in the generated file — Setup{{ .Entity }}Routes
+      The route is auto-registered via init() in the generated file — Setup{{ .Entity }}
       picks it up automatically, no changes to wire_{{ .Entity | lower }}.go needed.
 
       NOTE: each action creates a separate file. For entities with many actions (pay,

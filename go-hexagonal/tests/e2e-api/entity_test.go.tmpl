@@ -2,11 +2,11 @@ package e2e_api
 
 // E2E tests for {{ .Entity }} API endpoints.
 // Generate test skeletons with go-surgeon after implementing handlers:
-//   go-surgeon test --file internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go --identifier Service.create{{ .Entity }}
-//   go-surgeon test --file internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go --identifier Service.update{{ .Entity }}
-//   go-surgeon test --file internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go --identifier Service.delete{{ .Entity }}
-//   go-surgeon test --file internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go --identifier Service.get{{ .Entity }}ByID
-//   go-surgeon test --file internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go --identifier Service.list{{ .Entity }}
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go --identifier {{ .Entity }}Svc.create
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go --identifier {{ .Entity }}Svc.update
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/commands/{{ .Entity | lower }}.go --identifier {{ .Entity }}Svc.delete
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go --identifier {{ .Entity }}Svc.getByID
+//   go-surgeon test --file internal/{{ .Context }}/inbound/http/queries/{{ .Entity | lower }}.go --identifier {{ .Entity }}Svc.list
 //
 // Tests must cover:
 //   - Full CRUD lifecycle against real infrastructure (testcontainers)

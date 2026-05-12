@@ -7,15 +7,12 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel"
 
 	"{{ .ModulePath }}/internal/{{ .Context }}/app"
 	appconfig "{{ .ModulePath }}/internal/{{ .Context }}/config"
-	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/commands"
-	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/queries"
 	inboundhttp "{{ .ModulePath }}/internal/{{ .Context }}/inbound/http"
 )
 
@@ -36,14 +33,17 @@ type Backends struct {
 
 // WireDeps holds shared dependencies passed to each WireFunc.
 // Created once by Setup(), then passed to every entity wire function.
+//
+// Note: HTTP validators are NOT in WireDeps. The inbound/http package owns its
+// own validator instances — created inside commands.SetupRouter / queries.SetupRouter.
+// Wire files only register adapters here; HTTP routes are registered when
+// inboundhttp.SetupRouter is called below.
 type WireDeps struct {
-	Backends       Backends
-	HTTPMux        *mux.Router
-	CmdValidator   *validator.Validate
-	QueryValidator *validator.Validate
+	Backends Backends
+	HTTPMux  *mux.Router
 }
 
-// WireFunc wires a single entity's adapters and routes.
+// WireFunc wires a single entity's adapters.
 // Each entity has its own wire_entity.go that registers one via init().
 type WireFunc func(ctx context.Context, a *app.App, deps WireDeps)
 
@@ -102,9 +102,11 @@ func (c *Context) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // This may take time (migrations, connection warmup, etc.).
 // Call this in a background goroutine after the HTTP server starts.
 //
-// This is the composition root. Entity-specific wiring lives in wire_entity.go
-// files — each one registers a WireFunc via init(). Setup calls them all,
-// passing the App (which implements usecase interfaces) and shared dependencies.
+// This is the composition root. Entity-specific adapter wiring lives in
+// wire_entity.go files — each one registers a WireFunc via init(). Setup
+// calls them all, passing the App. HTTP routes are registered in one shot
+// via inboundhttp.SetupRouter — entity HTTP setup is owned by the
+// inbound/http package, not by individual wire files.
 func (c *Context) Setup(ctx context.Context, cfg *appconfig.Config, backends Backends) error {
 	ctx, span := tracer.Start(ctx, "{{ .Context }}.Setup")
 	defer span.End()
@@ -128,17 +130,13 @@ func (c *Context) Setup(ctx context.Context, cfg *appconfig.Config, backends Bac
 	// App service (implements usecase interfaces)
 	a := app.New(slog.Default())
 
-	// HTTP router + shared middleware
+	// HTTP router
 	router := mux.NewRouter()
-	inboundhttp.SetupRouter(router)
 
-	// Wire all entities — each registers its adapters (repos, publishers)
-	// AND its inbound routes (HTTP handlers receive usecase interfaces, not *app.App).
+	// Wire all entities — each registers its outbound adapters (repos, publishers).
 	deps := WireDeps{
-		Backends:       backends,
-		HTTPMux:        router,
-		CmdValidator:   commands.NewValidator(),
-		QueryValidator: queries.NewValidator(),
+		Backends: backends,
+		HTTPMux:  router,
 	}
 	func() {
 		_, s := tracer.Start(ctx, "{{ .Context }}.Setup.wire")
@@ -147,6 +145,10 @@ func (c *Context) Setup(ctx context.Context, cfg *appconfig.Config, backends Bac
 			fn(ctx, a, deps)
 		}
 	}()
+
+	// Register all inbound HTTP routes (commands + queries) in one shot.
+	// The *app.App satisfies the App interface (commands.App + queries.App).
+	inboundhttp.SetupRouter(router, a)
 
 	// Start consumers — each runs in its own goroutine.
 	func() {

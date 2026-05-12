@@ -4,15 +4,28 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+
+	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/commands"
+	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/queries"
 )
 
-// SetupRouter applies shared middleware to the router.
-// Per-entity routes are registered directly by wire files via
-// commands.Setup{Entity}Routes and queries.Setup{Entity}Routes.
+// App is the combined interface required by all HTTP handlers in this context.
+// The *app.App passed from the composition root must satisfy both sub-interfaces.
+type App interface {
+	commands.App
+	queries.App
+}
+
+// SetupRouter applies shared middleware and registers all inbound HTTP routes
+// for this bounded context. Called once from the context composition root with
+// the shared server router and the *app.App as App.
+//
 // Health probes (/healthz, /readyz) are registered by main.go via
-// internal/pkg/infrastructure.SetupHealthz.
-func SetupRouter(r *mux.Router, middlewares ...func(http.Handler) http.Handler) {
+// internal/pkg/infrastructure.SetupHealthz — not here.
+func SetupRouter(r *mux.Router, a App, middlewares ...func(http.Handler) http.Handler) {
 	for _, m := range middlewares {
 		r.Use(mux.MiddlewareFunc(m))
 	}
+	commands.SetupRouter(r, a)
+	queries.SetupRouter(r, a)
 }

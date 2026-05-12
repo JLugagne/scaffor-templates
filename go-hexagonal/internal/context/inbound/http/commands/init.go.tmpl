@@ -1,9 +1,29 @@
 package commands
 
-import "github.com/go-playground/validator/v10"
+import (
+	"github.com/go-playground/validator/v10"
+	"github.com/gorilla/mux"
+)
 
-// NewValidator creates a shared validator instance for all command handlers.
-// Called once from the composition root, then passed to per-entity setup functions.
-func NewValidator() *validator.Validate {
-	return validator.New(validator.WithRequiredStructEnabled())
+// HTTPService is the base service shared by every command entity handler.
+// Created once by SetupRouter and embedded in each entity's Svc.
+type HTTPService struct {
+	Validator *validator.Validate
+	App       App
+}
+
+// App composes every per-entity command interface in this context.
+// add_http_commands appends each new <Entity>App embedding via go-surgeon.
+type App interface {
+}
+
+// SetupRouter creates the shared HTTPService and delegates route registration
+// to each entity's Setup function. add_http_commands appends each new
+// Setup<Entity>(router, svc) call here via go-surgeon.
+func SetupRouter(router *mux.Router, a App) {
+	svc := HTTPService{
+		Validator: validator.New(validator.WithRequiredStructEnabled()),
+		App:       a,
+	}
+	_ = svc
 }

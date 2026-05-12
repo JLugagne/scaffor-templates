@@ -4,8 +4,6 @@ import (
 	"context"
 
 	"{{ .ModulePath }}/internal/{{ .Context }}/app"
-	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/commands"
-	"{{ .ModulePath }}/internal/{{ .Context }}/inbound/http/queries"
 	{{ .Adapter }}adapter "{{ .ModulePath }}/internal/{{ .Context }}/outbound/{{ .Adapter }}"
 )
 
@@ -18,7 +16,8 @@ func wire{{ .Entity }}(ctx context.Context, a *app.App, deps WireDeps) {
 	{{ .Entity | lower }}Repo := {{ .Adapter }}adapter.New{{ .Entity }}Repository(deps.Backends.Postgres)
 	a.Set{{ .Entity }}Repo({{ .Entity | lower }}Repo)
 
-	// Inbound: register HTTP routes (a implements the usecase interfaces)
-	commands.Setup{{ .Entity }}Routes(deps.HTTPMux, a, deps.CmdValidator)
-	queries.Setup{{ .Entity }}Routes(deps.HTTPMux, a, deps.QueryValidator)
+	// Inbound HTTP routes for {{ .Entity }} are registered by the inbound/http
+	// package itself — see inbound/http/commands/init.go and queries/init.go,
+	// which call Setup{{ .Entity }} from inboundhttp.SetupRouter. add_http_commands /
+	// add_http_queries wire those calls in via go-surgeon — no manual step here.
 }

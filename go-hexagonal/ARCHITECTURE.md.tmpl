@@ -75,10 +75,11 @@ lives in `init.go` and companion `wire_*.go` files:
   mentions specific entities.
 
 - **`wire_{entity}.go`** — one file per entity. Each registers a `WireFunc`
-  via Go's `init()` mechanism. The wire function creates the entity's adapters
-  (repository, publisher), injects them into the App via setter methods, and
-  registers inbound HTTP/gRPC routes. Adding a new entity means adding a new
-  file — no edits to `init.go`.
+  via Go's `init()` mechanism. The wire function creates the entity's outbound
+  adapters (repository, publisher) and injects them into the App via setter
+  methods. Inbound HTTP routes are NOT registered here — they're owned by the
+  `inbound/http` package itself (see below). Adding a new entity means adding a
+  new wire file — no edits to `init.go`.
 
   ```go
   // wire_book.go
@@ -87,14 +88,16 @@ lives in `init.go` and companion `wire_*.go` files:
   func wireBook(ctx context.Context, a *app.App, deps WireDeps) {
       bookRepo := pg.NewBookRepository(deps.Backends.Postgres)
       a.SetBookRepo(bookRepo)
-      commands.SetupBookRoutes(deps.HTTPMux, a, deps.CmdValidator)
-      queries.SetupBookRoutes(deps.HTTPMux, a, deps.QueryValidator)
+      // HTTP routes for Book are wired by inbound/http/{commands,queries}/init.go
   }
   ```
 
-  Note: `a` (concrete `*app.App`) is passed to `SetupBookRoutes`, but the
-  function signature accepts `book.BookCommands` (domain interface). Go's
-  structural typing handles this — `*app.App` implements `BookCommands`.
+  The composition root calls `inboundhttp.SetupRouter(router, a)` once. That
+  function applies shared middleware and delegates to `commands.SetupRouter`
+  and `queries.SetupRouter`, which iterate over per-entity `Setup<Entity>`
+  calls (added by `add_http_commands` / `add_http_queries` via go-surgeon).
+  `*app.App` satisfies the package-level `App` interface because it embeds
+  every per-entity `<Entity>App`.
 
 - **Testability** — `Setup()` takes a `*config.Config` and `Backends`.
   Integration tests can call `Setup()` directly with a test config, without
@@ -161,27 +164,35 @@ HTTP and gRPC handlers are split into `commands/` (writes) and `queries/`
 - **Queries** (GET) parse query params (cursor, limit, filters), call usecase
   Queries, convert the result to a response.
 
-Each entity defines its own handler struct with the relevant usecase
-interface (`{Entity}Commands` or `{Entity}Queries`) and a shared
-`*validator.Validate`. The handler never sees `*app.App` — it only knows
-about the domain interface. Routes are registered per-entity from the
-composition root via `commands.Setup{Entity}Routes(mux, cmds, validator)`.
+Each entity defines its own `<Entity>App` interface (the subset of usecase
+methods that handler needs) and an `<Entity>Svc` struct that embeds the
+package-level `HTTPService` (which carries the shared `*validator.Validate`
+and the package-level `App` interface). The handler never sees `*app.App`
+directly — it only sees `<Entity>App`. Routes are registered per-entity by
+`Setup<Entity>(router, httpSvc)`, which is called from the package
+`SetupRouter`:
 
 ```go
-type bookHandler struct {
-    commands book.BookCommands       // domain interface, not *app.App
-    validator *validator.Validate
+type BookApp interface {
+    bookuc.BookCommands
+    bookuc.BookQueries
 }
 
-func SetupBookRoutes(r *mux.Router, cmds book.BookCommands, v *validator.Validate) {
-    h := &bookHandler{commands: cmds, validator: v}
-    r.Handle("/api/v1/tenants/{tenantID}/books", http.HandlerFunc(h.create)).Methods(http.MethodPost)
+type BookSvc struct {
+    HTTPService
+    App BookApp
+}
+
+func SetupBook(r *mux.Router, httpSvc HTTPService) {
+    s := BookSvc{HTTPService: httpSvc, App: httpSvc.App}
+    r.HandleFunc("/api/v1/tenants/{tenantID}/books", s.create).Methods(http.MethodPost)
 }
 ```
 
-This keeps the inbound layer decoupled from the app layer. The composition
-root (wire files) passes `*app.App` to these functions, and Go's structural
-typing satisfies the interface automatically.
+The package-level `App` interface in `commands/init.go` (and `queries/init.go`)
+embeds every `<Entity>App`, so `*app.App` satisfies it automatically. The
+composition root passes `*app.App` once to `inboundhttp.SetupRouter` —
+no per-entity inbound wiring lives in `wire_*.go`.
 
 ### Domain entities are opaque
 
