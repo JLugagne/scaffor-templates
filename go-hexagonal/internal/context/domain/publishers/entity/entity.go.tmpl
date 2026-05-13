@@ -11,15 +11,11 @@ import (
 //
 // Convention: methods take domain types as parameters, never serialized bytes or
 // wire-format structs — serialization is the adapter's responsibility, not the port's.
-{{ if .Events -}}
-// Events: {{ .Events }}
-{{ end -}}
+//
+// The default method set is Created/Deleted — RENAME / EXTEND to match your domain's
+// event vocabulary (Placed, Paid, Cancelled, ...) and re-run `add_publisher_mock` to
+// regenerate the mock against the new method set.
 type {{ .Entity }}Publisher interface {
-{{ if .Events -}}
-{{ range (splitList "," .Events) }}	Publish{{ $.Entity }}{{ . | trim }}(ctx context.Context, item *domain.{{ $.Entity }}) error
-{{ end -}}
-{{ else -}}
 	Publish{{ .Entity }}Created(ctx context.Context, item *domain.{{ .Entity }}) error
 	Publish{{ .Entity }}Deleted(ctx context.Context, id domain.{{ .Entity }}ID) error
-{{ end -}}
 }

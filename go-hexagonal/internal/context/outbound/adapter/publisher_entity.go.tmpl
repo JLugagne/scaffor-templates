@@ -7,12 +7,18 @@ import (
 	"{{ .ModulePath }}/internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub"
 )
 
+// The default method set is Created/Deleted (mirrors the {{ .Entity }}Publisher port).
+// RENAME / EXTEND both this file and the port (domain/publishers/{{ .Entity | lower }}pub) to match
+// your domain's event vocabulary, then re-run `add_publisher_mock` to keep the mock in sync.
+
 type {{ .Entity | lower }}Publisher struct {
 	backend Backend
 }
 
 // New{{ .Entity }}Publisher creates a new {{ .Entity }} event publisher.
-// backend is the shared Backend interface defined in backend.go.
+// backend is the shared Backend interface defined in backend.go. A nil backend is
+// allowed at scaffold time so wire_<entity>.go compiles before you have a real client —
+// Publish... methods become no-ops in that case.
 func New{{ .Entity }}Publisher(backend Backend) *{{ .Entity | lower }}Publisher {
 	return &{{ .Entity | lower }}Publisher{backend: backend}
 }
@@ -20,38 +26,25 @@ func New{{ .Entity }}Publisher(backend Backend) *{{ .Entity | lower }}Publisher 
 // Compile-time check.
 var _ {{ .Entity | lower }}pub.{{ .Entity }}Publisher = (*{{ .Entity | lower }}Publisher)(nil)
 
-{{ if .Events -}}
-{{ range (splitList "," .Events) }}
-func (p *{{ $.Entity | lower }}Publisher) Publish{{ $.Entity }}{{ . | trim }}(ctx context.Context, item *domain.{{ $.Entity }}) error {
-	// TODO(scaffolding): serialize `item` into a pkg/{{ $.Context }}/events/v1.{{ $.Entity }}{{ . | trim }}Event
+func (p *{{ .Entity | lower }}Publisher) Publish{{ .Entity }}Created(ctx context.Context, item *domain.{{ .Entity }}) error {
+	if p.backend == nil {
+		return nil // no broker wired yet — see add_publisher_adapter hint, manual step #3
+	}
+	// TODO(scaffolding): serialize `item` into a pkg/{{ .Context }}/events/v1.{{ .Entity }}CreatedEvent
 	// payload (json.Marshal) and publish it on p.backend using the concrete broker method
 	// (e.g. kafka-go Writer.WriteMessages, sqs SendMessage, nats.Conn.Publish).
-	// Required before this publisher can emit events — contract tests and app-service
-	// integration tests expect real delivery.
 	// Include a correlation/trace ID from ctx, set the topic/subject from config, and
 	// return any transport error unwrapped so callers can distinguish transient failures.
 	return nil
 }
-{{ end -}}
-{{ else -}}
-func (p *{{ .Entity | lower }}Publisher) Publish{{ .Entity }}Created(ctx context.Context, item *domain.{{ .Entity }}) error {
-	// TODO(scaffolding): serialize `item` into a pkg/{{ .Context }}/events/v1.{{ .Entity }}CreatedEvent
-	// payload (json.Marshal) and publish it on p.backend using the concrete broker method
-	// (e.g. kafka-go Writer.WriteMessages, sqs SendMessage, nats.Conn.Publish).
-	// Required before this publisher can emit events — contract tests and app-service
-	// integration tests expect real delivery.
-	// Include a correlation/trace ID from ctx, set the topic/subject from config, and
-	// return any transport error unwrapped.
-	return nil
-}
 
 func (p *{{ .Entity | lower }}Publisher) Publish{{ .Entity }}Deleted(ctx context.Context, id domain.{{ .Entity }}ID) error {
+	if p.backend == nil {
+		return nil // no broker wired yet — see add_publisher_adapter hint, manual step #3
+	}
 	// TODO(scaffolding): serialize `id` into a pkg/{{ .Context }}/events/v1.{{ .Entity }}DeletedEvent
 	// payload (json.Marshal) and publish it on p.backend using the concrete broker method.
-	// Required before this publisher can emit events — contract tests and app-service
-	// integration tests expect real delivery.
 	// Include a correlation/trace ID from ctx, set the topic/subject from config, and
 	// return any transport error unwrapped.
 	return nil
 }
-{{ end -}}

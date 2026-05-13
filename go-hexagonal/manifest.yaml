@@ -170,9 +170,19 @@ commands:
 
       ── DECIDE THE IDENTITY / SCOPING MODEL NOW (it ripples into every layer) ─────
       The scaffolded domain.Actor is just {id}. Every app/usecase/repository method
-      takes `actor *domain.Actor` — never a bare tenantID. Extend Actor (and the
-      adapters that build it: inbound/http/shared/actor.go, inbound/grpc/actor.go)
-      to match your answers below. Copy the matching block into domain/actor.go.
+      takes `actor *domain.Actor` — never a bare tenantID. Copy the matching block(s)
+      below into domain/actor.go (and add typed IDs to domain/types.go as needed —
+      e.g. GroupID, mirroring the TenantID pattern there; there is no scaffor command
+      for typed IDs).
+
+      WHEN YOU CHANGE domain.Actor / NewActor, you must also update EVERY adapter that
+      builds an Actor — these are NOT shared:
+        - HTTP:  internal/{{ .Context }}/inbound/http/shared/actor.go  (ActorFromRequest — reads headers)
+        - gRPC:  internal/{{ .Context }}/inbound/grpc/actor.go         (ActorFromContext — reads metadata)
+        - CLI:   internal/{{ .Context }}/inbound/cli/...               (build it from flags/env)
+        - events: consumers build a system Actor for event-driven ops
+      If you add tenantID/groupID, change ALL of them (e.g. read X-Tenant-ID / x-tenant-id /
+      a --tenant flag) or one transport will compile against the wrong NewActor signature.
 
         Q: Is there a tenant / org / workspace / account?
           NO  → delete domain.TenantID (types.go) and skip the rest. Single-tenant.
@@ -184,8 +194,9 @@ commands:
                       return &Actor{id: id, tenantID: tenantID}, nil
                   }
                   func (a *Actor) TenantID() TenantID { return a.tenantID }
-                Then add `tenant_id` to migrations + scope every query in the repo
-                adapter (see that file's header) + enable the out-of-scope contract cases.
+                Then: update the ActorFrom* adapters above to read the tenant; add `tenant_id` to
+                migrations + scope every query in the repo adapter (see that file's header) + enable
+                the out-of-scope contract cases.
 
         Q: Are there roles / permissions?
           NO  → nothing to add.
@@ -491,11 +502,18 @@ commands:
       gRPC command handler skeleton for {{ .Entity }} added (transport socle if missing + per-entity handler).
 
       Created (socle, skipped if present):
-        internal/{{ .Context }}/inbound/grpc/actor.go            — ActorFromContext (header-trusting default)
+        internal/{{ .Context }}/inbound/grpc/actor.go            — ActorFromContext (trusts `x-actor-id` metadata)
         internal/{{ .Context }}/inbound/grpc/init.go             — SetupServer (shared interceptors)
         internal/{{ .Context }}/inbound/grpc/commands/init.go    — package doc
       Created (per entity):
         internal/{{ .Context }}/inbound/grpc/commands/{{ .Entity | lower }}.go — {{ .Entity | lower }}Handler{commands} + Setup{{ .Entity }}Services (empty until proto stubs exist)
+
+      ⚠ ACTOR EXTRACTION IS DUPLICATED: grpc/actor.go (ActorFromContext) ships reading only
+        `x-actor-id` — exactly like http/shared/actor.go reads only `X-Actor-ID`. If your
+        domain.Actor carries a tenant/group/etc., you must edit BOTH (they are not shared):
+        grpc/actor.go reads `x-tenant-id` from metadata, http/shared/actor.go reads `X-Tenant-ID`
+        from headers — and both call the same multi-arg domain.NewActor. Edit one and forget the
+        other → that transport won't compile.
 
       ── BUILD IT OUT ─────────────────────────────────────────────────────────────
         1. Decide the RPCs (mirror {{ .Entity }}Commands; real names if your domain has them — PlaceOrder, not CreateOrder).
@@ -1569,9 +1587,6 @@ commands:
         description: Go module path
       - key: Entity
         description: Entity name in PascalCase
-      - key: Events
-        description: "Comma-separated event suffixes (e.g. Added,StockChanged). If omitted, defaults to Created,Deleted. Each becomes a Publish{Entity}{Suffix} method."
-        optional: true
     files:
       - source: internal/context/domain/publishers/entity/entity.go.tmpl
         destination: internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub/{{ .Entity | lower }}pub.go
@@ -1599,9 +1614,6 @@ commands:
         description: Go module path
       - key: Entity
         description: Entity name in PascalCase
-      - key: Events
-        description: "Comma-separated event suffixes (must match add_publisher_interface). Optional."
-        optional: true
     files:
       - source: internal/context/domain/publishers/entity/entitytest/mock.go.tmpl
         destination: internal/{{ .Context }}/domain/publishers/{{ .Entity | lower }}pub/{{ .Entity | lower }}pubtest/mock.go
@@ -1628,9 +1640,6 @@ commands:
         description: Entity name in PascalCase
       - key: Adapter
         description: Adapter technology name (e.g. kafka, sqs, nats)
-      - key: Events
-        description: "Comma-separated event suffixes (must match add_publisher_interface). Optional."
-        optional: true
     files:
       - source: internal/context/outbound/adapter/backend.go.tmpl
         destination: internal/{{ .Context }}/outbound/{{ .Adapter }}/backend.go
@@ -1641,30 +1650,58 @@ commands:
       - command: >-
           echo 'func (a *App) Set{{ .Entity }}Publisher(p {{ .Entity | lower }}pub.{{ .Entity }}Publisher) { a.{{ .Entity | lower }}Publisher = p }'
           | go-surgeon add-func --file internal/{{ .Context }}/app/{{ .Entity | lower }}.go
+      # Wire the publisher in wire_<entity>.go. The backend is passed as `nil` so the file
+      # COMPILES immediately (Backend is an interface — a nil backend just makes Publish… a no-op).
+      # Once you've added a {{ .Adapter | title }} field to the Backends struct in init.go, swap
+      # `New{{ .Entity }}Publisher(nil)` → `New{{ .Entity }}Publisher(deps.Backends.{{ .Adapter | title }})`.
       - command: >-
           go-surgeon insert-call
           --file internal/{{ .Context }}/wire_{{ .Entity | lower }}.go
           --id wire{{ .Entity }}
-          --call "{{ .Entity | lower }}Publisher := {{ .Adapter }}adapter.New{{ .Entity }}Publisher(deps.Backends.{{ .Adapter | title }}); a.Set{{ .Entity }}Publisher({{ .Entity | lower }}Publisher)"
+          --call "{{ .Entity | lower }}Publisher := {{ .Adapter }}adapter.New{{ .Entity }}Publisher(nil); a.Set{{ .Entity }}Publisher({{ .Entity | lower }}Publisher)"
           --position "after:Set{{ .Entity }}Repo"
+      # Ensure the wire file imports the publisher's adapter package. When publisher's
+      # Adapter == repo's Adapter (e.g. both pg) the import is already there from add_wire,
+      # and the grep guard makes this a no-op. When they differ (e.g. repo=pg, publisher=kafka),
+      # this inserts the import alias `<adapter>adapter "<module>/.../outbound/<adapter>"` right
+      # before the closing `)` of the import block. (goimports can't guess the non-standard
+      # alias name, so we add it explicitly.)
+      - command: >-
+          grep -q '{{ .Adapter }}adapter "{{ .ModulePath }}/internal/{{ .Context }}/outbound/{{ .Adapter }}"' internal/{{ .Context }}/wire_{{ .Entity | lower }}.go
+          || sed -i '0,/^)$/ s|^)$|\t{{ .Adapter }}adapter "{{ .ModulePath }}/internal/{{ .Context }}/outbound/{{ .Adapter }}"\n)|' internal/{{ .Context }}/wire_{{ .Entity | lower }}.go
     hint: |
-      {{ .Entity }} publisher adapter ({{ .Adapter }}) added.
+      {{ .Entity }} publisher adapter ({{ .Adapter }}) added — and it COMPILES as-is.
 
       Created:
-        internal/{{ .Context }}/outbound/{{ .Adapter }}/backend.go               — shared Backend interface (skipped if already exists)
-        internal/{{ .Context }}/outbound/{{ .Adapter }}/publisher_{{ .Entity | lower }}.go — publisher stub implementing {{ .Entity }}Publisher
+        internal/{{ .Context }}/outbound/{{ .Adapter }}/backend.go               — shared Backend interface (EMPTY stub — fill it; skipped if already exists)
+        internal/{{ .Context }}/outbound/{{ .Adapter }}/publisher_{{ .Entity | lower }}.go — publisher implementing {{ .Entity }}Publisher (Publish… bodies are TODO no-ops)
 
-      Auto-wired:
-        Set{{ .Entity }}Publisher setter added to app/{{ .Entity | lower }}.go
-        Publisher creation + injection inserted in wire_{{ .Entity | lower }}.go
+      Auto-wired (builds without edits):
+        - Set{{ .Entity }}Publisher setter added to app/{{ .Entity | lower }}.go
+        - In wire_{{ .Entity | lower }}.go (inside wire{{ .Entity }}, after Set{{ .Entity }}Repo):
+            {{ .Entity | lower }}Publisher := {{ .Adapter }}adapter.New{{ .Entity }}Publisher(nil)
+            a.Set{{ .Entity }}Publisher({{ .Entity | lower }}Publisher)
+          ^ backend is `nil` for now — a nil Backend means events aren't actually delivered yet.
 
-      REMAINING MANUAL STEP:
-        Add the publisher field to the App struct in app/config.go:
-          {{ .Entity | lower }}Publisher {{ .Entity | lower }}pub.{{ .Entity }}Publisher
+      REMAINING MANUAL STEPS (3, in order):
+        1. Define the Backend interface's method(s) in outbound/{{ .Adapter }}/backend.go — it ships
+           empty with a TODO listing the right shape per broker (NATS Publish / RabbitMQ
+           PublishWithContext / Kafka WriteMessages / SQS SendMessage). Then implement the
+           Publish{{ .Entity }}… method(s) in publisher_{{ .Entity | lower }}.go against it (json.Marshal the
+           pkg/{{ .Context }}/events/v1 payload, call p.backend.X(...)).
+        2. Add the publisher field to the App struct in app/config.go:
+             {{ .Entity | lower }}Publisher {{ .Entity | lower }}pub.{{ .Entity }}Publisher
+        3. Add a {{ .Adapter | title }} field to the Backends struct in internal/{{ .Context }}/init.go,
+           typed for your real client (e.g. `{{ .Adapter | title }} *kafka.Writer`):
+             - quickest: edit init.go by hand, or `go-surgeon update-struct --file internal/{{ .Context }}/init.go --id Backends`
+               with the new struct body (there is no idempotent "add field" CLI op);
+             - create the client in cmd/{{ .Context }}/main.go and put it in the Backends{...} literal;
+             - then in wire_{{ .Entity | lower }}.go change `New{{ .Entity }}Publisher(nil)` → `New{{ .Entity }}Publisher(deps.Backends.{{ .Adapter | title }})`.
 
-      The events/ directory is broker-agnostic. The broker (NATS, RabbitMQ, Kafka, SQS)
-      is chosen when implementing the Backend interface in backend.go — see the
-      examples in that file's TODO.
+      DUAL-WRITE NOTE: repo.Create then publisher.Publish is NOT atomic — if the broker fails after
+      the DB commit, the event is lost. For exactly-once, write events to an outbox table inside the
+      same DB transaction (the UnitOfWork) and relay them from a separate poller. See the
+      add_publisher_interface hint.
 
   - command: add_consumer_handler
     description: Add an inbound consumer handler for cross-context or local events
