@@ -1,4 +1,4 @@
-package {{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}eventsv1
+package {{ .SourceContext }}eventsv1
 
 // {{ .Event }}Event is received from other bounded contexts.
 // Use string for IDs and timestamps — events cross service boundaries.

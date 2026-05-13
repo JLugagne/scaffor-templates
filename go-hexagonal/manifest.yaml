@@ -1714,13 +1714,6 @@ commands:
         description: Entity name in PascalCase (e.g. Account for AccountDeleted events)
       - key: SourceContext
         description: Bounded context that emits the event (may differ from Context for cross-context events, e.g. "accounts" when consuming AccountDeleted in catalog)
-      - key: Event
-        description: |
-          Full event name in PascalCase (e.g. AccountDeleted). Used to reference the exact
-          event type created by add_consumed_event (e.g. AccountDeletedEvent).
-          Must match the Event variable passed to add_consumed_event.
-          If omitted, falls back to {{ .Entity }}Event — likely wrong for named events.
-        optional: true
     files:
       - source: internal/context/inbound/events/consumers/entity.go.tmpl
         destination: internal/{{ .Context }}/inbound/events/consumers/{{ .Entity | lower }}.go
@@ -1805,31 +1798,31 @@ commands:
         description: Event name in PascalCase (e.g. ProjectCreated)
       - key: SourceContext
         description: |
-          Bounded context that emits this event. When set, the event type is created in
-          pkg/{SourceContext}/events/v1 instead of pkg/{Context}/events/v1.
-          Use this for cross-context events (e.g. AccountDeleted from the accounts context).
-          Omit when consuming an event emitted by the same context.
-        optional: true
+          Bounded context that EMITS this event. The event type lands in pkg/{SourceContext}/events/v1.
+          For a cross-context event (e.g. AccountDeleted emitted by `accounts` and consumed by `catalog`):
+          set SourceContext=accounts. For an event emitted and consumed by the same bounded context:
+          set SourceContext={Context} (same value as Context). Always pass it explicitly.
     files:
       - source: pkg/context/events/v1/consumed.go.tmpl
-        destination: "pkg/{{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}/events/v1/consumed.go"
+        destination: "pkg/{{ .SourceContext }}/events/v1/consumed.go"
         on_conflict: skip
       - source: pkg/context/events/v1/consumed_event.go.tmpl
-        destination: "pkg/{{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}/events/v1/{{ .Event | lower }}_consumed.go"
+        destination: "pkg/{{ .SourceContext }}/events/v1/{{ .Event | lower }}_consumed.go"
     hint: |
-      Consumed event {{ .Event }} added.
+      Consumed event {{ .Event }} added (from source context: {{ .SourceContext }}).
 
       Created:
-        pkg/{{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}/events/v1/consumed.go            — package socle (created once, skipped after)
-        pkg/{{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}/events/v1/{{ .Event | lower }}_consumed.go — {{ .Event }}Event struct
+        pkg/{{ .SourceContext }}/events/v1/consumed.go            — package socle (created once, skipped after)
+        pkg/{{ .SourceContext }}/events/v1/{{ .Event | lower }}_consumed.go — {{ .Event }}Event struct
 
-      NOTE: event type lives in pkg/{{ if .SourceContext }}{{ .SourceContext }} (source context){{ else }}{{ .Context }}{{ end }}/events/v1.
-      Consumers in this context import from that path.
+      Consumers in {{ .Context }} import from pkg/{{ .SourceContext }}/events/v1.
 
       NEXT STEPS:
         1. Define the event fields
-        2. Create an inbound queue consumer to handle this event:
-           scaffor execute go-hexagonal add_consumer_handler --set Context={{ .Context }} --set Entity=... --set Event={{ .Event }} --set SourceContext={{ if .SourceContext }}{{ .SourceContext }}{{ else }}{{ .Context }}{{ end }}
+        2. Create an inbound queue consumer to handle this event (use the event's main subject as Entity —
+           e.g. Entity=Account for AccountDeletedEvent — and rename the generated Handle<Entity>Event method
+           to match the actual event struct name):
+           scaffor execute go-hexagonal add_consumer_handler --set Context={{ .Context }} --set ModulePath=... --set Entity=... --set SourceContext={{ .SourceContext }}
 
       Typical next step:
         - add_consumer_handler — REQUIRED to actually receive and process this event.
@@ -1879,16 +1872,22 @@ commands:
       - key: MigrationSlug
         description: Migration description slug (e.g. create_projects, add_notification_table)
       - key: Destination
-        description: "Override the migration root directory (e.g. cmd/db-migrate/migrations). The <Context> subdir is appended automatically — the file lands at <Destination>/<Context>/<Number>_<Slug>.sql. Defaults to internal/<Context>/outbound/<Adapter>/migrations when omitted."
+        description: |
+          Override the migration root directory (e.g. cmd/db-migrate/migrations). The <Context> subdir
+          is appended automatically — the file lands at <Destination>/<Context>/<Number>_<Slug>.sql.
+          Defaults to internal/<Context>/outbound/<Adapter>/migrations when omitted.
         optional: true
     files:
       - source: internal/context/outbound/adapter/migrations/migration.sql.tmpl
-        destination: "{{ if .Destination }}{{ .Destination }}/{{ .Context }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.sql"
+        destination: "{{ .Destination | default (printf \"internal/%s/outbound/%s/migrations\" .Context .Adapter) }}{{ if .Destination }}/{{ .Context }}{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.sql"
     hint: |
       Migration {{ .MigrationNumber }}_{{ .MigrationSlug }} added.
 
       Created:
-        {{ if .Destination }}{{ .Destination }}/{{ .Context }}{{ else }}internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.sql
+        {{ .Destination | default (printf "internal/%s/outbound/%s/migrations" .Context .Adapter) }}{{ if .Destination }}/{{ .Context }}{{ end }}/{{ .MigrationNumber }}_{{ .MigrationSlug }}.sql
+
+      Override the destination root by passing `--set Destination=cmd/db-migrate/migrations` (the
+      <Context> subdir is appended automatically). Default: internal/{{ .Context }}/outbound/{{ .Adapter }}/migrations.
 
       NEXT STEPS:
         1. Fill in the CREATE/ALTER statements between -- +goose StatementBegin / -- +goose StatementEnd in the Up block.
@@ -1949,7 +1948,10 @@ commands:
       - key: Binary
         description: Binary name (e.g. worker, migrator, consumer)
       - key: NoContext
-        description: "Set to \"true\" to generate a minimal main.go with no bounded-context import (e.g. for cmd/db-migrate, cmd/nats-setup). Omit or set to \"false\" to reuse internal/<Context>/config."
+        description: |
+          Set to "true" to generate a minimal main.go with no bounded-context import (use for
+          cmd/db-migrate, cmd/nats-setup, etc.). Omit (or any value other than "true") = main.go
+          reuses internal/<Context> for config + DI.
         optional: true
     files:
       - source: cmd/binary/main.go.tmpl
@@ -1959,6 +1961,9 @@ commands:
 
       Created:
         cmd/{{ .Binary }}/main.go — {{ if eq .NoContext "true" }}standalone entry point (no bounded-context import){{ else }}entry point reusing {{ .Context }} bounded context{{ end }}
+
+      To generate a context-less binary (e.g. cmd/db-migrate that just talks to Postgres directly,
+      cmd/nats-setup that provisions topics), re-run with `--set NoContext=true`.
 
       This binary has no HTTP/gRPC server — it's an empty entry point for you to wire.
       NEXT STEPS:
@@ -2026,8 +2031,8 @@ commands:
       - key: Entity
         description: Entity name in PascalCase
       - key: Adapter
-        description: Adapter technology name (e.g. pg, redis, mongo). Only used to fill in the printed command sequence; defaults to "pg" in the text if omitted.
-        optional: true
+        description: Adapter technology name (e.g. pg, redis, mongo). Only used to fill in the printed command sequence.
+        default: "pg"
     files: []
     hint: |
       How to scaffold {{ .Entity }} across the hexagonal layers of {{ .Context }} — run these
@@ -2046,13 +2051,13 @@ commands:
               -> inbound ports {{ .Entity }}Commands/{{ .Entity }}Queries (+ mock + contract suite).
               Rename CRUD to your ubiquitous language (PlaceOrder...) then re-run add_usecase_mock.
 
-        4. add_app_service          --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter={{ .Adapter | default "pg" }}
+        4. add_app_service          --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter={{ .Adapter }}
               -> creates internal/{{ .Context }}/app/{{ .Entity | lower }}.go (near-empty) + the wire file.
               NOW: add the {{ .Entity | lower }}Repo field to app/config.go's App struct, then write the
               methods from that hint's CRUD skeleton.
 
-        5. add_repository_adapter   --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter={{ .Adapter | default "pg" }}
-              -> working CRUD {{ .Adapter | default "pg" }} adapter (+ contract test). Map your entity's columns; add a
+        5. add_repository_adapter   --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter={{ .Adapter }}
+              -> working CRUD {{ .Adapter }} adapter (+ contract test). Map your entity's columns; add a
               scope filter if multi-tenant (see that hint).
 
         6. add_inbound_http_commands --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }}
@@ -2073,7 +2078,7 @@ commands:
       add_domain_uow + add_uow_adapter + add_uow_accessor (multi-aggregate atomic ops).
 
       UnitOfWork note: UoW is per-context, not per-entity. If one already exists, after step 5 also
-      wire the entity's accessor:  scaffor execute go-hexagonal add_uow_accessor --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter={{ .Adapter | default "pg" }}
+      wire the entity's accessor:  scaffor execute go-hexagonal add_uow_accessor --set Context={{ .Context }} --set ModulePath={{ .ModulePath }} --set Entity={{ .Entity }} --set Adapter={{ .Adapter }}
 
 
 test:

@@ -13,8 +13,14 @@
 // THIS IS A SKELETON. Fill it from the `add_consumer_handler` hint:
 //   1. add one field per local usecase interface this consumer calls (e.g. orderCmds)
 //   2. add the matching parameter to New{{ .Entity }}Consumer
-//   3. in Handle...Event: map the event fields to domain value types and invoke the
-//      local usecase — without that call, events are parsed and silently dropped.
+//   3. in Handle{{ .Entity }}Event: map the event fields to domain value types and invoke
+//      the local usecase — without that call, events are parsed and silently dropped.
+//   4. if the source emits MULTIPLE event types and the type is not named after the
+//      Entity (e.g. consuming AccountDeleted from the accounts context with Entity=Account
+//      → Handle name matches; but consuming AccountSuspended → rename Handle{{ .Entity }}Event
+//      and the events.{{ .Entity }}Event type accordingly to match the actual struct in
+//      pkg/{{ .SourceContext }}/events/v1).
+//
 //   Decide first: which local operation does this event trigger? (e.g. AccountDeleted →
 //   AnonymizeOrdersForAccount). The usecase method takes `actor *domain.Actor` — for
 //   system-driven events, build a service/system Actor and pass it.
@@ -38,12 +44,15 @@ func New{{ .Entity }}Consumer() *{{ .Entity }}Consumer {
 	return &{{ .Entity }}Consumer{}
 }
 
-// Handle{{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }}Event handles {{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }} events from {{ .SourceContext }}.
+// Handle{{ .Entity }}Event handles {{ .Entity }}Event payloads from {{ .SourceContext }}.
 // After unmarshalling, invoke the local usecase — see the add_consumer_handler hint.
-func (c *{{ .Entity }}Consumer) Handle{{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }}Event(ctx context.Context, payload []byte) error {
-	var event events.{{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }}Event
+// Rename this method (and the events.{{ .Entity }}Event type below) to match the actual
+// event struct in pkg/{{ .SourceContext }}/events/v1 if the source emits a differently-named
+// event (e.g. AccountDeletedEvent rather than AccountEvent).
+func (c *{{ .Entity }}Consumer) Handle{{ .Entity }}Event(ctx context.Context, payload []byte) error {
+	var event events.{{ .Entity }}Event
 	if err := json.Unmarshal(payload, &event); err != nil {
-		return fmt.Errorf("unmarshal {{ if .Event }}{{ .Event }}{{ else }}{{ .Entity }}{{ end }} event from {{ .SourceContext }}: %w", err)
+		return fmt.Errorf("unmarshal {{ .Entity }} event from {{ .SourceContext }}: %w", err)
 	}
 	_ = event
 	return nil

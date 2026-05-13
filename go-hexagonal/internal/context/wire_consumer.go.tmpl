@@ -22,18 +22,18 @@ func wire{{ .Entity }}Consumer(ctx context.Context, a *app.App, deps WireDeps) (
 	handler := consumers.New{{ .Entity }}Consumer()
 
 	// TODO(scaffolding): create a broker subscription from deps.Backends.Broker
-	// (or your chosen Backend field) and wire it to handler.Handle{{ .Event }}Event.
+	// (or your chosen Backend field) and wire it to handler.Handle{{ .Entity }}Event.
 	// Required before the consumer observes any event.
 	// Examples for common brokers:
 	//
 	//   NATS (nats.go):
 	//     sub, err := deps.Backends.Nats.Subscribe("{{ .Entity | lower }}.events", func(m *nats.Msg) {
-	//         _ = handler.Handle{{ .Event }}Event(ctx, m.Data)
+	//         _ = handler.Handle{{ .Entity }}Event(ctx, m.Data)
 	//     })
 	//
 	//   RabbitMQ (amqp091-go):
 	//     msgs, err := deps.Backends.Amqp.Consume("{{ .Entity | lower }}.queue", "", false, false, false, false, nil)
-	//     go func() { for m := range msgs { _ = handler.Handle{{ .Event }}Event(ctx, m.Body); m.Ack(false) } }()
+	//     go func() { for m := range msgs { _ = handler.Handle{{ .Entity }}Event(ctx, m.Body); m.Ack(false) } }()
 	//
 	//   Kafka (kafka-go):
 	//     reader := kafka.NewReader(kafka.ReaderConfig{Brokers: ..., Topic: "...", GroupID: "..."})
